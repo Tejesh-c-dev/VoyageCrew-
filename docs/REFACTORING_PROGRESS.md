@@ -14,7 +14,7 @@ without supporting evidence.
 | 3 — Extract core and infrastructure | PASS | Centralized settings, Groq construction, logging/exception helpers, and PostgreSQL resource management. Removed database connection and graph compilation from module import and wired FastAPI startup/shutdown. `app` imports without credentials; all 12 offline regressions pass, including resource closure. |
 | 4 — Extract integrations | PASS | Added provider MCP modules and shared client configuration, retained the existing `mcp_client.py` function facade during graph extraction, relocated the weather server with a compatibility entry point, and verified its stdio initialize handshake. The 14 offline regressions pass; credentialed provider calls remain unavailable. |
 | 5 — Extract agents and graph | PASS | Extracted all agent nodes, shared state, routing, and graph assembly. Graph dependencies are injected; the 15 offline regressions pass, including full in-memory draft, interrupt, revision, and final-response execution. Pylance reports no workspace diagnostics or unresolved imports. |
-| 6 — Extract services and API | PASS | Added `TravelService`, schemas, dependencies, and page/travel/health routers; `tripmate.main:app` now owns startup/shutdown. Kept root `app.py` and `backend.py` compatibility facades. API, homepage, favicon, health, lifecycle, graph, and service regressions pass (16 tests); workspace diagnostics and import analysis are clean. |
+| 6 — Extract services and API | PASS | Added `TravelService`, schemas, dependencies, and page/travel/health routers; `main:app` now owns startup/shutdown. Kept root `app.py` and `backend.py` compatibility facades. API, homepage, favicon, health, lifecycle, graph, and service regressions pass (16 tests); workspace diagnostics and import analysis are clean. |
 | 7 — Verification | PARTIAL | `compileall`, all 16 offline tests, Pylance workspace diagnostics/import analysis, app compatibility import, and the relocated weather-server stdio initialize handshake pass. Live PostgreSQL/provider calls remain unverified without credentials. `docker build` was attempted but could not connect to the Docker Desktop Linux Engine named pipe. |
 | 8 — Documentation | PASS | Rewrote README for the modular architecture, setup, environment, startup, Docker, tests, workflow, and MCP; added `.env.example` without credentials. |
 | Phase 1.1 — Non-blocking graph execution | PASS | Both travel endpoints dispatch synchronous service calls with Starlette `run_in_threadpool`. The 20-test offline suite and `compileall` pass. Live PostgreSQL and external MCP calls remain unavailable for validation. |
@@ -56,7 +56,7 @@ without supporting evidence.
 
 ## Current architecture
 
-- `tripmate/main.py` creates settings, the checkpointer, shared LLM, MCP
+- `main.py` creates settings, the checkpointer, shared LLM, MCP
   integration, graph, and service during FastAPI startup; failures and shutdown
   clear the service and close an initialized PostgreSQL connection pool.
 - API routers delegate to `TravelService`; agent implementations and graph
@@ -156,7 +156,7 @@ without supporting evidence.
 - Validation: **67 tests passed** with
   `python -m unittest discover -s tests -v`;
   `python -m compileall -q tripmate mcp_servers tests`, application and
-  compatibility imports (`app`, `backend`, `mcp_client`, `tripmate.main`,
+  compatibility imports (`app`, `backend`, `mcp_client`, `main`,
   logging/observability modules, and the weather server), and `git diff
   --check` passed. Tests ran in the isolated project `.venv` using pinned
   requirements because the global interpreter lacked required packages.
@@ -223,13 +223,13 @@ without supporting evidence.
 ### Stage 6 — Extract services and API
 
 - Created `TravelService`, travel schemas, API dependencies, page/travel/health
-  routers, and `tripmate/main.py`.
+  routers, and `main.py`.
 - Retained root `app.py` and `backend.py` compatibility entry points.
   Updated the Docker Uvicorn module, Docker exclusions, `uv` dependency, and
   `.env.example`.
 - Tests: 16 passed, including homepage, favicon, health, request validation,
   API response shape, and lifespan resource closure. `app` and
-  `tripmate.main:app` resolve to the same application.
+  `main:app` resolves to the application.
 
 ### Stage 7 — Verification
 
@@ -294,7 +294,7 @@ without supporting evidence.
   remain unchanged and pass.
 - Validation with the repository `.venv`: `python -m unittest discover -s
   tests -v` passed **25 tests**; `python -m compileall -q tripmate tests` and
-  imports of `app`, `tripmate.main`, `tripmate.api.dependencies`, and
+  imports of `app`, `main`, `tripmate.api.dependencies`, and
   `tripmate.persistence.checkpointer` succeeded. The existing suite's
   intentional route-failure tests log their expected exceptions while passing.
   No live PostgreSQL server or external credentialed MCP provider was
@@ -316,7 +316,7 @@ without supporting evidence.
   failure sanitization, the bounded SQL probe, and saver-lock contention.
 - Validation with the repository `.venv`: `python -m unittest discover -s
   tests -v` passed **33 tests**; `python -m compileall -q tripmate tests` and
-  imports of `app`, `tripmate.main`, `tripmate.api.dependencies`,
+  imports of `app`, `main`, `tripmate.api.dependencies`,
   `tripmate.api.routes.health`, and `tripmate.persistence.checkpointer`
   succeeded. Live PostgreSQL connectivity remains unverified because no
   database configuration/server was available.
@@ -338,7 +338,7 @@ without supporting evidence.
   narrowed to expected `RuntimeError`/`ValueError`, and log server-side.
 - Validation with the repository `.venv`: `python -m unittest discover -s
   tests -v` passed **43 tests**; `python -m compileall -q tripmate tests` and
-  imports of `app`, `tripmate.main`, `tripmate.api.dependencies`,
+  imports of `app`, `main`, `tripmate.api.dependencies`,
   `tripmate.api.exception_handlers`, `tripmate.core.exceptions`,
   `tripmate.integrations.mcp.client`, and
   `tripmate.persistence.checkpointer` succeeded. PostgreSQL and provider
@@ -478,14 +478,14 @@ building because the Docker Desktop Linux Engine named pipe was unavailable.
 
 ## Stage 0 migration map (implemented)
 
-Keep the frontend directories at the root and introduce the package entry point
-`tripmate.main:app`. Extract responsibilities as follows, preserving existing
+Keep the frontend directories at the root and use the root entry point
+`main:app`. Extract responsibilities as follows, preserving existing
 prompts, model settings, node names, routing order, payload shapes, and
 environment-variable names:
 
 | Current responsibility | Planned destination |
 |---|---|
-| FastAPI creation and lifespan | `tripmate/main.py` |
+| FastAPI creation and lifespan | `main.py` |
 | Request/approval models | `tripmate/api/schemas/travel.py` |
 | Homepage and favicon | `tripmate/api/routes/pages.py` |
 | Travel and approval endpoints | `tripmate/api/routes/travel.py` |

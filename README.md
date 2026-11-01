@@ -23,7 +23,7 @@ HTTP contracts; external providers are integrated through MCP.
 
 | Directory or file | Responsibility |
 |---|---|
-| `tripmate/main.py` | FastAPI app, static assets, and startup/shutdown lifecycle |
+| `main.py` | FastAPI app, static assets, and startup/shutdown lifecycle |
 | `tripmate/api/` | Request schemas, dependencies, and page/travel/health routes |
 | `tripmate/agents/` | Guardrail, supervisor, and specialist workflow nodes |
 | `tripmate/graph/` | Travel state, routing, and graph assembly |
@@ -66,10 +66,16 @@ Set the following values in `.env`:
 ```dotenv
 DATABASE_URL=postgresql://...
 GROQ_API_KEY=...
+GROQ_MODEL=openai/gpt-oss-120b
 TAVILY_API_KEY=...
 AVIATION_STACK_API_KEY=...
 OPENWEATHER_API_KEY=...
 ```
+
+`GROQ_MODEL` selects a model available to the configured Groq account. The
+default is `openai/gpt-oss-120b`; set it explicitly when using another model
+from Groq's current model catalog. Requests use Groq's standard
+`https://api.groq.com` endpoint.
 
 `AVIATIONSTACK_API_KEY` is also accepted as an alias.
 
@@ -131,7 +137,7 @@ and let startup initialize it.
 Start the application:
 
 ```powershell
-uvicorn tripmate.main:app --reload --host 127.0.0.1 --port 8000
+python -m uvicorn main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 Open <http://127.0.0.1:8000>. The previous `python app.py` and
@@ -190,7 +196,7 @@ docker build -t voyagecrew .
 docker run --env-file .env -p 8000:8000 voyagecrew
 ```
 
-The image starts `tripmate.main:app` and installs `uv`, which provides `uvx`
+The image starts `main:app` and installs `uv`, which provides `uvx`
 for the AviationStack MCP server.
 
 ## Tests

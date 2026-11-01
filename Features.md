@@ -130,6 +130,8 @@ The backend builds a `StateGraph`, registers the supervisor, specialist, approva
 Runtime configuration is read from `.env` or environment variables:
 
 - `GROQ_API_KEY` — required for the LLM.
+- `GROQ_MODEL` — optional Groq model identifier; defaults to
+  `openai/gpt-oss-120b`.
 - `DATABASE_URL` — required for PostgreSQL checkpointing.
 - `TAVILY_API_KEY` — required when Tavily search is used.
 - `AVIATION_STACK_API_KEY` or `AVIATIONSTACK_API_KEY` — accepted for AviationStack.

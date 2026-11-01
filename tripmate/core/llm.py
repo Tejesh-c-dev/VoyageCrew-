@@ -21,9 +21,10 @@ def create_llm(settings: Settings | None = None) -> ChatGroq:
         "GROQ_API_KEY",
         active_settings.groq_api_key,
     )
+    model = active_settings.require_groq_model()
     configure_ssl_certificates()
     return ChatGroq(
-        model="llama-3.3-70b-versatile",
+        model=model,
         api_key=SecretStr(api_key),
         timeout=httpx.Timeout(
             GROQ_RESPONSE_TIMEOUT_SECONDS,

@@ -11,7 +11,8 @@ from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 from tripmate.core.exceptions import ConfigurationError
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b"
 
 
 @dataclass(frozen=True)
@@ -22,6 +23,7 @@ class Settings:
     tavily_api_key: str | None
     aviation_stack_api_key: str | None
     openweather_api_key: str | None
+    groq_model: str = DEFAULT_GROQ_MODEL
 
     def require_database_url(self) -> str:
         if not self.database_url:
@@ -65,6 +67,15 @@ class Settings:
             )
         return value
 
+    def require_groq_model(self) -> str:
+        model = self.groq_model.strip()
+        if not model:
+            raise ConfigurationError(
+                "GROQ_MODEL is missing. Set it to a model available to the "
+                "configured Groq account."
+            )
+        return model
+
 
 def load_settings(project_root: Path = PROJECT_ROOT) -> Settings:
     load_dotenv(project_root / ".env")
@@ -72,6 +83,7 @@ def load_settings(project_root: Path = PROJECT_ROOT) -> Settings:
         project_root=project_root,
         database_url=os.getenv("DATABASE_URL"),
         groq_api_key=os.getenv("GROQ_API_KEY"),
+        groq_model=os.getenv("GROQ_MODEL") or DEFAULT_GROQ_MODEL,
         tavily_api_key=os.getenv("TAVILY_API_KEY"),
         aviation_stack_api_key=(
             os.getenv("AVIATION_STACK_API_KEY")
