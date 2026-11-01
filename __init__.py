@@ -1,0 +1,1 @@
+"""VoyageCrew application package."""
