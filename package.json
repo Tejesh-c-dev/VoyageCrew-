@@ -7,8 +7,6 @@
     "test:playwright": "playwright test"
   },
   "devDependencies": {
-    "@playwright/test": "^1.44.0",
-    "dompurify": "3.0.5",
-    "marked": "4.3.0"
+    "@playwright/test": "^1.44.0"
   }
 }

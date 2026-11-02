@@ -217,3 +217,10 @@ One real PostgreSQL/Neon integration test initializes the LangGraph schema and
 checks database readiness. It runs when `DATABASE_URL` is set in the process
 environment or root `.env`; otherwise that single integration test is skipped.
 The integration test creates no workflow thread and deletes no records.
+## React frontend
+
+The production React frontend is built from rontend/ and served by FastAPI. For local UI development, run 
+pm install --prefix frontend and 
+pm run dev --prefix frontend while the API is running on port 8000. The Vite development server proxies /api to FastAPI. To create the production bundle, run 
+pm run build --prefix frontend. Docker builds this bundle in its Node stage and packages it with the API. Clerk's publishable key is returned at runtime by /api/config; no Clerk key is embedded in the frontend build.
+

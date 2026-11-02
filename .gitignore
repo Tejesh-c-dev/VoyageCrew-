@@ -221,3 +221,11 @@ __marimo__/
 .env
 .env*
 !.env.example
+
+# JavaScript dependencies and generated test/build output
+node_modules/
+frontend/node_modules/
+frontend/dist/
+playwright-report/
+test-results/
+*.tsbuildinfo

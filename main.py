@@ -5,6 +5,7 @@ from time import perf_counter
 import uuid
 
 from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from tripmate.api.routes.health import router as health_router
@@ -147,6 +148,24 @@ app.mount(
     StaticFiles(directory=str(PROJECT_ROOT / "static")),
     name="static",
 )
+frontend_assets = PROJECT_ROOT / "frontend" / "dist" / "assets"
+if frontend_assets.is_dir():
+    app.mount(
+        "/assets",
+        StaticFiles(directory=str(frontend_assets)),
+        name="frontend-assets",
+    )
 app.include_router(pages_router)
 app.include_router(travel_router)
 app.include_router(health_router)
+
+
+@app.get("/{spa_path:path}")
+async def spa_fallback(spa_path: str):
+    """Serve the React entry point after API and health routes."""
+    if spa_path == "api" or spa_path.startswith(("api/", "health")):
+        return JSONResponse(status_code=404, content={"detail": "Not Found"})
+    index = PROJECT_ROOT / "frontend" / "dist" / "index.html"
+    if index.is_file():
+        return FileResponse(index, media_type="text/html")
+    return JSONResponse(status_code=404, content={"detail": "Not Found"})
