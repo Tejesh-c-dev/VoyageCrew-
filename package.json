@@ -1,0 +1,14 @@
+{
+  "name": "tripmate",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "python -m uvicorn main:app --host 127.0.0.1 --port 8000",
+    "test:playwright": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.44.0",
+    "dompurify": "3.0.5",
+    "marked": "4.3.0"
+  }
+}

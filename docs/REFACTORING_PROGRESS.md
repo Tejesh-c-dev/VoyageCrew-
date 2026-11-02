@@ -519,3 +519,66 @@ the baseline launch commands are verified.
   checkpoint persistence/resume, and external MCP tool calls.
 - The local editor interpreter is Python 3.10.4; test under Python 3.11 as
   documented when that runtime is available.
+
+---
+
+## Phase 2.4-B — Flight Accuracy
+
+**Status:** PASS WITH LIMITATIONS
+**Completed:** 2026-11-02
+
+### Audit Defects Fixed
+
+Six critical defects identified in the prior flight accuracy audit were
+resolved:
+
+| # | Defect | Fix Applied |
+|---|--------|-------------|
+| 1 | Agent called `list_airports`/`list_airlines` with no args; never queried routes | Added runtime route lookup via `list_routes` with `dep_iata`/`arr_iata` when origin+destination IATA codes are resolvable |
+| 2 | Origin, destination, and travel duration never extracted or passed to MCP | Extracted from `state["trip_constraints"]` (supervisor-populated); passed into prompt and into route tool args |
+| 3 | Prompt asked LLM for airfare estimates with no provider backing | Prompt now carries a mandatory IMPORTANT disclaimer; LLM instructed to prefix all fares with the standard estimate notice |
+| 4 | `is_verified=True` on overall flight evidence including fabricated pricing | `is_verified` is now always `False`; raw airport/airline/route records carry `"provider_verified": True` in the `records` list |
+| 5 | Zero error handling around `aviation_mcp_call` | All MCP calls wrapped in `try/except (ConfigurationError, ExternalServiceError, Exception)`; failures produce an `"unavailable"` evidence item |
+| 6 | `final.py` had no mandatory airfare disclaimer in section 7 | Added verbatim disclaimer directive: "Flight prices and real-time seat availability … are AI-estimated and have NOT been verified against live booking systems." |
+
+### Files Changed
+
+| File | Change | Lines |
+|------|--------|-------|
+| `tripmate/agents/flight.py` | Full rewrite: error handling, constraint extraction, `is_verified=False`, airfare disclaimer prompt, route tool, empty-response guard | +268 / −91 |
+| `tripmate/agents/final.py` | Added mandatory airfare/seat disclaimer directive | +6 / −0 |
+| `tests/test_phase24b_flight_accuracy.py` | **NEW** — 50 tests across 8 classes | +452 / −0 |
+| `tests/test_phase24a_evidence_contract.py` | Updated 1 assertion: `is_verified` expectation for flight evidence | +9 / −3 |
+| `docs/REFACTORING_PROGRESS.md` | This section | appended |
+
+### Test Results
+
+| Suite | Tests | Result |
+|-------|-------|--------|
+| `test_phase24b_flight_accuracy.py` (focused) | 50 | ✅ All pass |
+| `test_phase24a_evidence_contract.py` (regression) | 87 | ✅ All pass |
+| Full suite (`tests/` excluding playwright) | 137+ | ✅ All pass (1 NeonIntegrationTest skipped — requires live DB) |
+
+Baseline before this phase: **86 passed, 1 failed (Neon live-DB test).**
+After: **136+ passed, 1 skipped (same Neon live-DB test — unchanged).**
+
+### Remaining Limitations
+
+1. **No live airfare data.** AviationStack MCP provides airport and airline
+   reference data but has no ticket-pricing endpoint. All fares in the final
+   response remain LLM estimates. Explicit disclaimers are now mandated at
+   both the prompt level and the final response level.
+
+2. **Route lookup is best-effort.** `list_routes` may not exist on all
+   AviationStack plan tiers. If the tool is absent or rate-limited, the agent
+   degrades gracefully to airport+airline data only and continues.
+
+3. **IATA code extraction is heuristic.** Origin/destination strings from
+   `trip_constraints` are city names. A small hardcoded lookup table covers
+   ~20 major cities; unknown cities silently skip the route call. A dedicated
+   geocoding/airport-lookup step would improve coverage (out of scope).
+
+4. **Date-specific schedules unsupported.** AviationStack's reference-data
+   tools do not return seat inventory or date-specific schedules. Travel
+   dates from `trip_constraints["duration"]` are passed into the prompt for
+   context but do not drive any provider query.

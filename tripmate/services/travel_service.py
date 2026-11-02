@@ -67,6 +67,9 @@ def serialize_result(
         "approved": result.get("approved"),
         "human_feedback": result.get("human_feedback", ""),
         "llm_calls": result.get("llm_calls", 0),
+        # Phase 2.4-A: additive evidence field.  Falls back to {} so callers
+        # that ignore this key are unaffected.
+        "evidence": result.get("evidence", {}),
     }
 
 

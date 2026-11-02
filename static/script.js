@@ -1,6 +1,80 @@
 let currentThreadId = localStorage.getItem("travel_thread_id") || null;
 let latestAnswerMarkdown = "";
 let waitingForApproval = false;
+let clerkReady = false;
+let activeUserId = null;
+let userButtonMounted = false;
+
+async function apiToken() {
+  if (!clerkReady || !window.Clerk?.session) {
+    throw new Error("Please sign in to use TripMate.");
+  }
+  const token = await window.Clerk.session.getToken();
+  if (!token) throw new Error("Your session expired. Please sign in again.");
+  return token;
+}
+
+async function authorizedFetch(url, options) {
+  const token = await apiToken();
+  options.headers = { ...options.headers, Authorization: `Bearer ${token}` };
+  return fetch(url, options);
+}
+
+function updateAuthentication() {
+  const clerk = window.Clerk;
+  const signedIn = Boolean(clerk?.isSignedIn && clerk.user);
+  const planner = document.getElementById("plannerApp");
+  const signIn = document.getElementById("signIn");
+  const userButton = document.getElementById("userButton");
+  const status = document.getElementById("authStatus");
+
+  if (!signedIn) {
+    clerkReady = false;
+    activeUserId = null;
+    currentThreadId = null;
+    planner.classList.add("hidden");
+    userButton.classList.add("hidden");
+    status.textContent = "Sign in to access your travel plans.";
+    signIn.classList.remove("hidden");
+    return;
+  }
+
+  const userId = clerk.user.id;
+  const priorOwner = localStorage.getItem("travel_thread_owner");
+  if (priorOwner !== userId) {
+    localStorage.removeItem("travel_thread_id");
+    currentThreadId = null;
+  } else {
+    currentThreadId = localStorage.getItem("travel_thread_id") || null;
+  }
+  localStorage.setItem("travel_thread_owner", userId);
+  activeUserId = userId;
+  clerkReady = true;
+  planner.classList.remove("hidden");
+  status.textContent = "";
+  signIn.classList.add("hidden");
+  userButton.classList.remove("hidden");
+  if (!userButtonMounted) {
+    clerk.mountUserButton(userButton);
+    userButtonMounted = true;
+  }
+}
+
+async function initializeClerk() {
+  const status = document.getElementById("authStatus");
+  try {
+    await window.Clerk.load({ ui: { ClerkUI: window.__internal_ClerkUICtor } });
+    window.Clerk.addListener(updateAuthentication);
+    updateAuthentication();
+    if (!window.Clerk.isSignedIn) {
+      window.Clerk.mountSignIn(document.getElementById("signIn"));
+    }
+  } catch (_error) {
+    status.textContent = "Secure sign-in could not be loaded. Refresh the page or contact support.";
+  }
+}
+
+window.addEventListener("load", initializeClerk);
 
 const AGENT_LABELS = {
   flight_agent: "✈️ Flight Agent",
@@ -49,7 +123,17 @@ function hideError() {
 
 function renderMarkdown(element, markdown) {
   if (typeof marked !== "undefined") {
-    element.innerHTML = marked.parse(markdown || "");
+    const rawHtml = marked.parse(markdown || "");
+    // Sanitize the generated HTML to block XSS vectors (scripts, event handlers, unsafe URLs, etc.)
+    const cleanHtml = DOMPurify.sanitize(rawHtml, {
+      // Disallow dangerous URL schemes like javascript:, data:, vbscript:
+      ADD_TAGS: [],
+      ADD_ATTR: [],
+      FORBID_TAGS: ["script", "style", "iframe"],
+      FORBID_ATTR: ["onerror", "onload", "onclick", "style"],
+      ALLOWED_URI_REGEXP: /^(https?|ftp):\/\//i
+    });
+    element.innerHTML = cleanHtml;
   } else {
     element.innerText = markdown || "";
   }
@@ -135,7 +219,7 @@ async function sendMessage() {
   setLoading(true, "draft");
 
   try {
-    const response = await fetch("/api/travel", {
+    const response = await authorizedFetch("/api/travel", {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
@@ -154,6 +238,7 @@ async function sendMessage() {
 
     currentThreadId = data.thread_id;
     localStorage.setItem("travel_thread_id", currentThreadId);
+    localStorage.setItem("travel_thread_owner", activeUserId);
 
     showWorkflow(data);
 
@@ -191,7 +276,7 @@ async function submitApproval(approved) {
   setLoading(true, "approval");
 
   try {
-    const response = await fetch("/api/travel/approve", {
+    const response = await authorizedFetch("/api/travel/approve", {
       method: "POST",
       headers: {
         "Content-Type": "application/json"

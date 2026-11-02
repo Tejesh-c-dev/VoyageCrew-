@@ -7,13 +7,18 @@
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+  <section id="authPanel" class="auth-panel">
+    <div id="signIn"></div>
+    <div id="userButton" class="hidden"></div>
+    <p id="authStatus">Loading secure sign-in…</p>
+  </section>
   <div class="page-bg">
     <div class="gradient-circle circle-1"></div>
     <div class="gradient-circle circle-2"></div>
     <div class="gradient-circle circle-3"></div>
   </div>
 
-  <main class="app-container">
+  <main id="plannerApp" class="app-container hidden">
     <section class="hero-section">
       <div class="badge">
         ✈️ VoyageCrew — LangGraph, MCP, Supervisor, Guardrails & HITL
@@ -168,8 +173,11 @@
     Built with FastAPI, LangGraph, Groq, PostgreSQL, Tavily, AviationStack and MCP
   </footer>
 
-  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked@4.3.0/marked.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.5/purify.min.js" integrity="sha512-KqUc2WMPF/gxte9xVjVE4TIt1LMUTidO3BrcItFg0Ro24I7pGNzgcXdnWdezNY+8T0/JEmdC79MuwYn+8UdOqw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-  <script src="/static/script.js"></script>
+  <script defer crossorigin="anonymous" src="{{ clerk_frontend_api_url }}/npm/@clerk/ui@1/dist/ui.browser.js"></script>
+  <script defer crossorigin="anonymous" data-clerk-publishable-key="{{ clerk_publishable_key }}" src="{{ clerk_frontend_api_url }}/npm/@clerk/clerk-js@6/dist/clerk.browser.js"></script>
+  <script defer src="/static/script.js"></script>
 </body>
 </html>

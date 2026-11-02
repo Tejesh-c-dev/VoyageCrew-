@@ -201,17 +201,19 @@ for the AviationStack MCP server.
 
 ## Tests
 
-Run the offline regression suite with the standard library:
+Run the regression suite with Python 3.11 and the project dependencies
+installed (the application imports FastAPI, LangGraph, and Psycopg):
 
 ```powershell
-.venv\Scripts\python.exe -m unittest discover -s tests -v
+.venv\Scripts\python.exe -m tests.run_tests
 ```
 
-Tests cover request validation, response serialization, routing and agent
-selection, approval/revision, checkpointer lifecycle, MCP configuration, and
-an in-memory end-to-end graph run. If `DATABASE_URL` is configured in the
-environment or root `.env`, PostgreSQL integration tests additionally verify
-schema setup, persisted checkpoints, interruption/resumption, concurrency,
-readiness, and application lifecycle. They remove only their uniquely named
-test threads. Without `DATABASE_URL`, those integration tests are skipped.
-No API or live MCP credentials are required.
+The runner exits nonzero if discovery finds zero tests. Offline tests use mocks
+and cover FastAPI startup/shutdown, health and readiness, checkpointer setup and
+cleanup, supervisor routing, request validation and sanitized errors, and
+approval/revision resume behavior. No API or live MCP credentials are required.
+
+One real PostgreSQL/Neon integration test initializes the LangGraph schema and
+checks database readiness. It runs when `DATABASE_URL` is set in the process
+environment or root `.env`; otherwise that single integration test is skipped.
+The integration test creates no workflow thread and deletes no records.

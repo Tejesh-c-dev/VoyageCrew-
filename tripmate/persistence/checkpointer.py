@@ -1,6 +1,7 @@
 """PostgreSQL LangGraph checkpointer lifecycle."""
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import psycopg
@@ -21,6 +22,17 @@ CHECKPOINTER_POOL_MAX_WAITING = 10
 class CheckpointerResources:
     pool: ConnectionPool[psycopg.Connection[dict[str, Any]]]
     saver: PostgresSaver
+
+    def ensure_ownership_schema(self) -> None:
+        migration = (
+            Path(__file__).parent / "migrations" / "0001_thread_ownership.sql"
+        ).read_text(encoding="utf-8")
+        with self.pool.connection() as connection:
+            with connection.transaction():
+                with connection.cursor() as cursor:
+                    for statement in migration.split(";"):
+                        if statement.strip():
+                            cursor.execute(statement)
 
     def is_available(self) -> bool:
         if self.pool.closed:
@@ -60,11 +72,10 @@ def create_checkpointer(settings: Settings) -> CheckpointerResources:
         )
         saver = PostgresSaver(pool)
         saver.setup()
+        resources = CheckpointerResources(pool, saver)
+        resources.ensure_ownership_schema()
     except Exception:
         pool.close()
         raise
 
-    return CheckpointerResources(
-        pool=pool,
-        saver=saver,
-    )
+    return resources

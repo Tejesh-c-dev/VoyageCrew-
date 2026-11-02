@@ -6,6 +6,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from tripmate.core.observability import invoke_llm
 from tripmate.agents.shared import AgentNode
+from tripmate.graph.evidence import make_evidence
 from tripmate.graph.state import TravelState
 
 
@@ -48,8 +49,19 @@ If exact live prices are unavailable, clearly label estimates as approximate.
                 HumanMessage(content=prompt),
             ]
         )
+
+        # Budget analysis is entirely LLM-synthesised.  No live price API is
+        # used; all figures are model estimates (is_estimate=True, is_verified=False).
+        budget_evidence = make_evidence(
+            source="llm",
+            content=str(response.content),
+            is_estimate=True,    # all cost figures are LLM estimates
+            is_verified=False,   # no live price data was fetched
+        )
+
         return {
             "budget_results": response.content,
+            "evidence": {"budget": budget_evidence},
             "messages": [AIMessage(content="Budget assessment generated.")],
             "llm_calls": state.get("llm_calls", 0) + 1,
         }

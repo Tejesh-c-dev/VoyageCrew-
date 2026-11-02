@@ -17,6 +17,16 @@ class BadRequestError(ApplicationError):
         super().__init__(public_message)
 
 
+class AuthenticationError(ApplicationError):
+    status_code = 401
+    public_message = "Authentication is required."
+
+
+class ThreadNotFoundError(ApplicationError):
+    status_code = 404
+    public_message = "The requested resource was not found."
+
+
 class ServiceUnavailableError(ApplicationError):
     status_code = 503
     public_message = "A required service is temporarily unavailable."

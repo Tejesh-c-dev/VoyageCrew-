@@ -6,6 +6,8 @@ from typing import Annotated, Any, TypedDict
 from langchain_core.messages import AnyMessage
 from typing_extensions import Required
 
+from tripmate.graph.evidence import AgentEvidence, merge_evidence
+
 
 class TravelState(TypedDict, total=False):
     messages: Annotated[list[AnyMessage], operator.add]
@@ -25,3 +27,7 @@ class TravelState(TypedDict, total=False):
     human_feedback: str
     final_response: str
     llm_calls: int
+    # Evidence contract (Phase 2.4-A): provenance for all specialist results.
+    # Uses merge_evidence reducer so each agent's sub-key is preserved
+    # independently across the sequential pipeline.
+    evidence: Annotated[AgentEvidence, merge_evidence]

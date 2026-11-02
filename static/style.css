@@ -737,3 +737,12 @@ footer {
     grid-template-columns: 1fr;
   }
 }
+.auth-panel {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 1rem;
+  max-width: 1100px;
+  margin: 1rem auto;
+  padding: 0 1rem;
+}

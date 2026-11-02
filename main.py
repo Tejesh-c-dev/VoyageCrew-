@@ -16,6 +16,7 @@ from tripmate.core.config import (
     configure_ssl_certificates,
     load_settings,
 )
+from tripmate.core.exceptions import ConfigurationError
 from tripmate.core.logging import (
     configure_logging,
     get_logger,
@@ -42,8 +43,19 @@ async def lifespan(application: FastAPI):
     application.state.is_ready = False
     application.state.checkpointer_resources = None
     application.state.travel_service = None
+    application.state.settings = None
     try:
         settings = load_settings(PROJECT_ROOT)
+        application.state.settings = settings
+        if not all((
+            settings.clerk_issuer,
+            settings.clerk_audience,
+            settings.clerk_publishable_key,
+            settings.clerk_frontend_api_url,
+        )):
+            raise ConfigurationError(
+                "Clerk issuer, audience, publishable key, and frontend API URL are required."
+            )
         configure_ssl_certificates()
         resources = create_checkpointer(settings)
         integration = create_mcp_integration(settings)
@@ -61,6 +73,7 @@ async def lifespan(application: FastAPI):
         application.state.is_ready = False
         application.state.travel_service = None
         application.state.checkpointer_resources = None
+        application.state.settings = None
         if resources is not None:
             resources.close()
 

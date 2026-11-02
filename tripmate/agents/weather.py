@@ -7,6 +7,7 @@ from langchain_core.messages import AIMessage
 
 from tripmate.core.observability import invoke_llm
 from tripmate.agents.shared import AgentNode
+from tripmate.graph.evidence import make_evidence
 from tripmate.graph.state import TravelState
 from tripmate.integrations.mcp.client import MCPIntegration
 from tripmate.integrations.mcp.weather import (
@@ -52,8 +53,23 @@ Forecast:
 {forecast_data}
 """
 
+        # OpenWeather MCP returns live API data (is_verified=True).
+        # No LLM synthesis is performed; results are passed through directly
+        # (is_estimate=False).
+        weather_evidence = make_evidence(
+            source="openweather_mcp",
+            content=weather_results,
+            is_estimate=False,   # live weather API data, not LLM-generated
+            is_verified=True,    # data comes from OpenWeather live API
+            records=[
+                {"type": "current_weather", "raw": str(weather_data)[:500]},
+                {"type": "forecast", "raw": str(forecast_data)[:500]},
+            ],
+        )
+
         return {
             "weather_results": weather_results,
+            "evidence": {"weather": weather_evidence},
             "messages": [AIMessage(content="Weather information processed.")],
         }
 

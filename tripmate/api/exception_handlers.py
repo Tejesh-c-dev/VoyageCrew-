@@ -67,9 +67,11 @@ async def handle_application_error(
     exception: ApplicationError,
 ) -> JSONResponse:
     _log_exception("api.application_error", exception, request)
+    headers = {"WWW-Authenticate": "Bearer"} if exception.status_code == 401 else None
     return _error_response(
         exception.status_code,
         exception.public_message,
+        headers=headers,
         request=request,
     )
 
