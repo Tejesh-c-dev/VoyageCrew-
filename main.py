@@ -143,17 +143,19 @@ async def request_observability(request: Request, call_next):
         reset_correlation_id(token)
 
 
-app.mount(
-    "/static",
-    StaticFiles(directory=str(PROJECT_ROOT / "static")),
-    name="static",
-)
 frontend_assets = PROJECT_ROOT / "frontend" / "dist" / "assets"
 if frontend_assets.is_dir():
     app.mount(
         "/assets",
         StaticFiles(directory=str(frontend_assets)),
         name="frontend-assets",
+    )
+frontend_images = PROJECT_ROOT / "frontend" / "dist" / "images"
+if frontend_images.is_dir():
+    app.mount(
+        "/images",
+        StaticFiles(directory=str(frontend_images)),
+        name="frontend-images",
     )
 app.include_router(pages_router)
 app.include_router(travel_router)
@@ -163,7 +165,11 @@ app.include_router(health_router)
 @app.get("/{spa_path:path}")
 async def spa_fallback(spa_path: str):
     """Serve the React entry point after API and health routes."""
-    if spa_path == "api" or spa_path.startswith(("api/", "health")):
+    if (
+        spa_path == "api"
+        or spa_path.startswith(("api/", "health"))
+        or "." in spa_path.rsplit("/", 1)[-1]
+    ):
         return JSONResponse(status_code=404, content={"detail": "Not Found"})
     index = PROJECT_ROOT / "frontend" / "dist" / "index.html"
     if index.is_file():

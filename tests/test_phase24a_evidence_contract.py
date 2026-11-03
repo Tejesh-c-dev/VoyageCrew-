@@ -252,7 +252,18 @@ class MakeEvidenceTests(unittest.TestCase):
 # 4. Flight agent evidence
 # ---------------------------------------------------------------------------
 
-class FlightAgentEvidenceTests(unittest.TestCase):
+class _NoFlightCoroutineMixin:
+    def setUp(self):
+        super().setUp()
+        patcher = patch(
+            "tripmate.agents.flight.aviation_mcp_call",
+            new=MagicMock(return_value=None),
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+
+class FlightAgentEvidenceTests(_NoFlightCoroutineMixin, unittest.TestCase):
     def _run_flight_agent(self, airports=None, airlines=None, llm_content="Flight info"):
         from tripmate.agents.flight import create_flight_agent
 
@@ -319,6 +330,14 @@ class FlightAgentEvidenceTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class HotelAgentEvidenceTests(unittest.TestCase):
+    def setUp(self):
+        patcher = patch(
+            "tripmate.agents.hotel.tavily_mcp_search",
+            new=MagicMock(return_value=None),
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def _run_hotel_agent(self, tavily_result="Hotel results text"):
         from tripmate.agents.hotel import create_hotel_agent
 
@@ -377,6 +396,21 @@ class HotelAgentEvidenceTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class WeatherAgentEvidenceTests(unittest.TestCase):
+    def setUp(self):
+        self._mcp_patchers = [
+            patch(
+                "tripmate.agents.weather.weather_mcp_search",
+                new=MagicMock(return_value=None),
+            ),
+            patch(
+                "tripmate.agents.weather.forecast_mcp_search",
+                new=MagicMock(return_value=None),
+            ),
+        ]
+        for patcher in self._mcp_patchers:
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
     def _run_weather_agent(
         self,
         current="16°C sunny",

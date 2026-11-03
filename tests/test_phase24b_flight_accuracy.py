@@ -73,7 +73,10 @@ def _run_flight_agent(
         },
     }
 
-    with patch("tripmate.agents.flight.asyncio.run", side_effect=side_effects), \
+    with patch(
+        "tripmate.agents.flight.aviation_mcp_call", new=MagicMock(return_value=None)
+    ), \
+         patch("tripmate.agents.flight.asyncio.run", side_effect=side_effects), \
          patch("tripmate.agents.flight.invoke_llm", return_value=mock_response):
         agent = create_flight_agent(mock_llm, mock_integration)
         return agent(state)
@@ -83,7 +86,18 @@ def _run_flight_agent(
 # 1. Schema / tool introspection (Requirement 1)
 # ---------------------------------------------------------------------------
 
-class FlightAgentSchemaInspectionTests(unittest.TestCase):
+class _NoFlightCoroutineMixin:
+    def setUp(self):
+        super().setUp()
+        patcher = patch(
+            "tripmate.agents.flight.aviation_mcp_call",
+            new=MagicMock(return_value=None),
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+
+class FlightAgentSchemaInspectionTests(_NoFlightCoroutineMixin, unittest.TestCase):
     """The agent must not assume argument names; it must handle missing tools."""
 
     def test_agent_calls_list_airports_and_list_airlines(self):
@@ -143,7 +157,7 @@ class FlightAgentSchemaInspectionTests(unittest.TestCase):
 # 2. Constraint extraction (Requirement 2)
 # ---------------------------------------------------------------------------
 
-class FlightConstraintExtractionTests(unittest.TestCase):
+class FlightConstraintExtractionTests(_NoFlightCoroutineMixin, unittest.TestCase):
     """Origin, destination, and duration from trip_constraints must appear in
     the LLM prompt so the model can generate relevant guidance."""
 
@@ -213,7 +227,7 @@ class FlightConstraintExtractionTests(unittest.TestCase):
 # 3. Evidence separation (Requirements 3 & 4)
 # ---------------------------------------------------------------------------
 
-class FlightEvidenceSeparationTests(unittest.TestCase):
+class FlightEvidenceSeparationTests(_NoFlightCoroutineMixin, unittest.TestCase):
     """Provider records and LLM estimates must be tracked separately.
 
     The overall flight evidence is NEVER is_verified=True because AviationStack
@@ -266,7 +280,7 @@ class FlightEvidenceSeparationTests(unittest.TestCase):
 # 4. No fabrication / airfare disclaimer (Requirements 3 & 5)
 # ---------------------------------------------------------------------------
 
-class FlightNoFabricationTests(unittest.TestCase):
+class FlightNoFabricationTests(_NoFlightCoroutineMixin, unittest.TestCase):
     """The prompt must explicitly instruct the LLM never to fabricate fares
     or seat availability, and empty provider responses must be handled safely."""
 
@@ -320,7 +334,7 @@ class FlightNoFabricationTests(unittest.TestCase):
 # 5. Provider failure handling (Requirements 6 & 7)
 # ---------------------------------------------------------------------------
 
-class FlightProviderFailureTests(unittest.TestCase):
+class FlightProviderFailureTests(_NoFlightCoroutineMixin, unittest.TestCase):
     """ConfigurationError and ExternalServiceError must produce "unavailable"
     evidence without crashing the workflow node."""
 
@@ -395,7 +409,7 @@ class FlightProviderFailureTests(unittest.TestCase):
 # 6. Route validation (IATA lookup and route tool argument passing)
 # ---------------------------------------------------------------------------
 
-class FlightRouteValidationTests(unittest.TestCase):
+class FlightRouteValidationTests(_NoFlightCoroutineMixin, unittest.TestCase):
     """When origin and destination are known IATA codes, list_routes must be
     invoked with dep_iata and arr_iata arguments."""
 
@@ -543,7 +557,7 @@ class FinalResponseDisclaimerTests(unittest.TestCase):
 # 8. Backward-compatibility regression (existing contract preserved)
 # ---------------------------------------------------------------------------
 
-class FlightEvidenceRegressionTests(unittest.TestCase):
+class FlightEvidenceRegressionTests(_NoFlightCoroutineMixin, unittest.TestCase):
     """The flight agent output shape must remain compatible with the
     existing LangGraph state schema and serialize_result contract."""
 

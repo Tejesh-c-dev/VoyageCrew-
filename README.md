@@ -18,8 +18,8 @@ Browser UI
   → Final response
 ```
 
-The application is a modular monolith. It retains the existing frontend and
-HTTP contracts; external providers are integrated through MCP.
+The application is a modular monolith. FastAPI serves a React frontend while
+preserving its HTTP contracts; external providers are integrated through MCP.
 
 | Directory or file | Responsibility |
 |---|---|
@@ -32,7 +32,7 @@ HTTP contracts; external providers are integrated through MCP.
 | `tripmate/persistence/checkpointer.py` | PostgreSQL LangGraph checkpointer lifecycle |
 | `tripmate/core/` | Settings, Groq model construction, logging, and exceptions |
 | `mcp_servers/weather_server.py` | Local OpenWeather MCP server |
-| `templates/`, `static/` | Existing browser UI |
+| `frontend/` | React and TypeScript browser interface |
 | `tests/` | Offline API, workflow, and infrastructure regression tests |
 
 `app.py`, `backend.py`, `mcp_client.py`, and `custom_weather_mcp_server.py` are
@@ -154,8 +154,8 @@ Open <http://127.0.0.1:8000>. The previous `python app.py` and
   `{"thread_id": "...", "approved": true, "feedback": ""}` to approve or revise
   a paused draft; rejection requires nonblank feedback
 
-The response fields and endpoint paths remain compatible with the existing
-frontend in `static/script.js`.
+The response fields and endpoint paths remain compatible with the React
+frontend.
 
 ## Workflow and integrations
 
@@ -213,14 +213,25 @@ and cover FastAPI startup/shutdown, health and readiness, checkpointer setup and
 cleanup, supervisor routing, request validation and sanitized errors, and
 approval/revision resume behavior. No API or live MCP credentials are required.
 
-One real PostgreSQL/Neon integration test initializes the LangGraph schema and
-checks database readiness. It runs when `DATABASE_URL` is set in the process
-environment or root `.env`; otherwise that single integration test is skipped.
-The integration test creates no workflow thread and deletes no records.
+PostgreSQL integration tests cover database readiness, checkpoint schema setup, and thread ownership/migration behavior. They require a disposable local PostgreSQL database configured through `TRIPMATE_TEST_DATABASE_URL`; tests are skipped when that database is unavailable. The release verification on 2026-11-03 ran these tests successfully against a disposable database.
+
 ## React frontend
 
-The production React frontend is built from rontend/ and served by FastAPI. For local UI development, run 
-pm install --prefix frontend and 
-pm run dev --prefix frontend while the API is running on port 8000. The Vite development server proxies /api to FastAPI. To create the production bundle, run 
-pm run build --prefix frontend. Docker builds this bundle in its Node stage and packages it with the API. Clerk's publishable key is returned at runtime by /api/config; no Clerk key is embedded in the frontend build.
+The production React frontend is built from `frontend/` and served by FastAPI. For local UI development, run:
 
+```powershell
+npm install --prefix frontend
+npm run dev --prefix frontend
+```
+
+The Vite development server proxies `/api` to FastAPI. Create the production bundle with `npm run build --prefix frontend`. Docker builds the bundle in its Node stage and packages it with the API. Clerk's publishable key is returned at runtime by `/api/config`; no Clerk key is embedded in the frontend build.
+
+### Release verification
+
+- `npm run build --prefix frontend` — passed. The largest initial JavaScript chunk is 428.31 kB, below Vite's 500 kB warning threshold. PDF export code is loaded only when requested.
+- `npm test --prefix frontend` — passed (2 tests).
+- `npm run test:playwright` — passed (17 tests) against the production React bundle served through FastAPI. Playwright mocks Clerk and planner API calls; Python tests cover FastAPI route and ownership behavior.
+- `python tests/run_tests.py` - 250 discovered and passed with no skips. Output includes a Pydantic `IncompleteFieldDefinitionWarning` from a dependency's unresolved `lifespan` annotation; the warning remains visible for investigation.
+- Disposable PostgreSQL migration and ownership checks passed, including cross-user isolation. The production Docker image built and its container passed health/readiness, React asset, and API smoke checks. See the migration report for exact results.
+
+See [the React migration and release readiness report](docs/REACT_MIGRATION_PROGRESS.md) for scope and details.
