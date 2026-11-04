@@ -6,6 +6,7 @@ from typing import Any
 from langchain_core.messages import AIMessage
 
 from tripmate.agents.shared import AgentNode
+from tripmate.core.exceptions import ConfigurationError, ExternalServiceError
 from tripmate.graph.evidence import make_evidence
 from tripmate.graph.state import TravelState
 from tripmate.integrations.mcp.client import MCPIntegration
@@ -17,9 +18,12 @@ def create_hotel_agent(
 ) -> AgentNode:
     def hotel_agent(state: TravelState) -> dict[str, Any]:
         query = f"Best hotels for {state['user_query']}"
-        hotel_results = asyncio.run(
-            tavily_mcp_search(integration, query)
-        )
+        try:
+            hotel_results = asyncio.run(tavily_mcp_search(integration, query))
+            provider_available = True
+        except (ConfigurationError, ExternalServiceError):
+            hotel_results = "Hotel search unavailable from Tavily."
+            provider_available = False
 
         # Extract a representative URL from the Tavily result when available.
         # Tavily returns web-search snippets: these are NOT independently
@@ -34,10 +38,10 @@ def create_hotel_agent(
                     break
 
         hotel_evidence = make_evidence(
-            source="tavily_mcp",
+            source="tavily_mcp" if provider_available else "unavailable",
             content=raw_text,
             is_estimate=False,   # web-sourced content, not LLM-generated
-            is_verified=False,   # Tavily web results are NOT independently verified
+            is_verified=False,
             source_url=source_url,
         )
 

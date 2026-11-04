@@ -12,6 +12,7 @@ from tripmate.api.routes.health import router as health_router
 from tripmate.api.routes.pages import router as pages_router
 from tripmate.api.routes.travel import router as travel_router
 from tripmate.api.exception_handlers import install_exception_handlers
+from tripmate.api.request_size import TravelRequestSizeLimitMiddleware
 from tripmate.core.config import (
     PROJECT_ROOT,
     configure_ssl_certificates,
@@ -89,6 +90,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 install_exception_handlers(app)
+app.add_middleware(TravelRequestSizeLimitMiddleware)
 
 
 @app.middleware("http")

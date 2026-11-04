@@ -14,7 +14,10 @@ async def public_config(request: Request):
     settings = getattr(request.app.state, "settings", None)
     if settings is None:
         settings = load_settings(PROJECT_ROOT)
-    return {"clerk_publishable_key": settings.clerk_publishable_key or ""}
+    return {
+        "clerk_publishable_key": settings.clerk_publishable_key or "",
+        "clerk_jwt_template": settings.clerk_jwt_template,
+    }
 
 
 @router.get("/")

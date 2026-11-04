@@ -4,7 +4,7 @@ const { test, expect } = require('@playwright/test');
 test.describe('React production Markdown sanitizer', () => {
   test.beforeEach(async ({ page }) => {
     await page.route('**clerk.**', route => route.abort());
-    await page.route('**/api/config', route => route.fulfill({ json: { clerk_publishable_key: 'pk_test_dummy' } }));
+    await page.route('**/api/config', route => route.fulfill({ json: { clerk_publishable_key: 'pk_test_dummy', clerk_jwt_template: 'VoyageCrew' } }));
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => typeof window.tripmateRenderMarkdown === 'function', { timeout: 15000 });
   });

@@ -28,6 +28,7 @@ class Settings:
     clerk_audience: str | None = None
     clerk_publishable_key: str | None = None
     clerk_frontend_api_url: str | None = None
+    clerk_jwt_template: str = "VoyageCrew"
 
     def require_database_url(self) -> str:
         if not self.database_url:
@@ -98,6 +99,7 @@ def load_settings(project_root: Path = PROJECT_ROOT) -> Settings:
         clerk_audience=os.getenv("CLERK_AUDIENCE"),
         clerk_publishable_key=os.getenv("CLERK_PUBLISHABLE_KEY"),
         clerk_frontend_api_url=os.getenv("CLERK_FRONTEND_API_URL"),
+        clerk_jwt_template=os.getenv("CLERK_JWT_TEMPLATE", "VoyageCrew"),
     )
 
 

@@ -2,20 +2,61 @@
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 import psycopg
+from langchain_core.runnables import RunnableConfig
+from langgraph.checkpoint.base import ChannelVersions, Checkpoint, CheckpointMetadata
 from langgraph.checkpoint.postgres import PostgresSaver
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
 from tripmate.core.config import Settings
+from tripmate.core.logging import annotate_database_error
 
 CHECKPOINTER_PROBE_TIMEOUT_SECONDS = 0.25
 CHECKPOINTER_POOL_MIN_SIZE = 1
 CHECKPOINTER_POOL_MAX_SIZE = 5
 CHECKPOINTER_POOL_TIMEOUT_SECONDS = 10
 CHECKPOINTER_POOL_MAX_WAITING = 10
+
+
+class DiagnosticPostgresSaver(PostgresSaver):
+    """Temporarily label PostgreSQL errors raised while saving checkpoints."""
+
+    def put(
+        self,
+        config: RunnableConfig,
+        checkpoint: Checkpoint,
+        metadata: CheckpointMetadata,
+        new_versions: ChannelVersions,
+    ) -> RunnableConfig:
+        try:
+            return super().put(config, checkpoint, metadata, new_versions)
+        except psycopg.Error as exception:
+            annotate_database_error(
+                exception,
+                operation="langgraph_checkpoint_put",
+                phase="checkpoint_persistence",
+            )
+            raise
+
+    def put_writes(
+        self,
+        config: RunnableConfig,
+        writes: Sequence[tuple[str, Any]],
+        task_id: str,
+        task_path: str = "",
+    ) -> None:
+        try:
+            super().put_writes(config, writes, task_id, task_path)
+        except psycopg.Error as exception:
+            annotate_database_error(
+                exception,
+                operation="langgraph_checkpoint_put_writes",
+                phase="checkpoint_persistence",
+            )
+            raise
 
 
 @dataclass
@@ -70,7 +111,7 @@ def create_checkpointer(settings: Settings) -> CheckpointerResources:
             wait=True,
             timeout=CHECKPOINTER_POOL_TIMEOUT_SECONDS,
         )
-        saver = PostgresSaver(pool)
+        saver = DiagnosticPostgresSaver(pool)
         saver.setup()
         resources = CheckpointerResources(pool, saver)
         resources.ensure_ownership_schema()

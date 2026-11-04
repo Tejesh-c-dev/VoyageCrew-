@@ -20,6 +20,7 @@ _STRUCTURED_FIELDS = (
     "attempts",
     "duration_ms",
     "error_type",
+    "error_code",
     "integration",
     "llm_calls",
     "method",
@@ -27,6 +28,33 @@ _STRUCTURED_FIELDS = (
     "outcome",
     "path",
     "phase",
+    "sqlstate",
+    "message_primary",
+    "table_name",
+    "constraint_name",
+    "finish_reason",
+    "input_tokens",
+    "output_tokens",
+    "system_instruction_tokens",
+    "current_request_tokens",
+    "previous_history_tokens",
+    "previous_user_request_count",
+    "persisted_history_message_count",
+    "included_history_tokens",
+    "included_history_turns",
+    "trip_constraint_tokens",
+    "retrieved_evidence_tokens",
+    "agent_output_tokens",
+    "estimated_total_tokens",
+    "initial_estimated_tokens",
+    "input_budget_tokens",
+    "total_reserve_tokens",
+    "completion_reserve_tokens",
+    "safety_reserve_tokens",
+    "remaining_available_tokens",
+    "compaction_level",
+    "request_size_bytes",
+    "configured_limit_bytes",
     "status_code",
     "thread_id_hash",
 )
@@ -74,6 +102,15 @@ class StructuredLogFormatter(logging.Formatter):
 
         for field in _STRUCTURED_FIELDS:
             value = getattr(record, field, None)
+            if field in {
+                "sqlstate",
+                "message_primary",
+                "table_name",
+                "constraint_name",
+            }:
+                if field in record.__dict__:
+                    payload[field] = value if isinstance(value, str) else None
+                continue
             if isinstance(value, (str, int, float)) and not isinstance(
                 value,
                 bool,
@@ -101,6 +138,18 @@ def reset_correlation_id(token: Token[str | None]) -> None:
 
 def get_correlation_id() -> str | None:
     return _CORRELATION_ID.get()
+
+
+def annotate_database_error(
+    exception: Exception,
+    *,
+    operation: str,
+    phase: str,
+) -> None:
+    """Attach safe request-local phase labels for the database error handler."""
+    if not hasattr(exception, "_tripmate_operation"):
+        exception._tripmate_operation = operation
+        exception._tripmate_phase = phase
 
 
 @contextmanager

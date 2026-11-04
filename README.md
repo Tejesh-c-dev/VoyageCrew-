@@ -88,11 +88,13 @@ including `sslmode` and `channel_binding`; if `sslmode` is absent, the
 application adds `sslmode=require`. Automatic prepared statements are disabled
 for compatibility with Neon pooled endpoints.
 
-Use the **direct** Neon endpoint for schema setup, `pg_dump`, and `pg_restore`.
-The **pooled** endpoint (hostname containing `-pooler`) is suitable for normal
-application traffic and can be copied from the Neon connection details. Both
-are PostgreSQL connection URLs and are configured only through
-`DATABASE_URL`; never commit the URL or put credentials in source files.
+The application uses one bounded pool for runtime queries, ownership checks,
+and startup checkpoint schema setup. Keep the Neon pooled endpoint in
+`DATABASE_URL` for runtime. Use the **direct** endpoint for `pg_dump` and
+`pg_restore`, which are separate administrative operations. There is no
+separate migration URL in the application; use a direct endpoint for another
+operation only if that operation is shown to require it. Never commit a
+connection URL or put credentials in source files.
 
 Local PostgreSQL remains available for development. Set a local URL in `.env`
 and explicitly disable SSL for a non-TLS local server, for example:
@@ -185,6 +187,28 @@ does not convert the workflow to async.
 The current guardrail intentionally preserves its existing fail-open fallback
 when model or JSON parsing fails. Changing that reliability/security behavior
 is a separate decision and is not part of this structural refactor.
+
+### Production readiness configuration notes
+
+`load_settings()` reads `.env` without overriding variables already present in
+the process environment, so the process environment takes precedence. The
+application consumes `DATABASE_URL`, `GROQ_API_KEY`, `GROQ_MODEL`,
+`TAVILY_API_KEY`, `AVIATION_STACK_API_KEY` (also accepts
+`AVIATIONSTACK_API_KEY`), `OPENWEATHER_API_KEY`, and the Clerk issuer, audience,
+publishable key, and frontend API URL. Provider credentials are needed for the
+corresponding live integrations; Clerk configuration is required at startup.
+
+In the local configuration reviewed for the 2026-11-04 readiness audit, the
+application settings above were present. `TRIPMATE_TEST_DATABASE_URL` was not
+set, so PostgreSQL integration tests were not run against a disposable test
+database. `MIGRATION_DATABASE_URL` is not read by the application. No database
+values are recorded here. The configured Neon runtime URL is pooled, and a
+read-only connectivity check succeeded; schema-writing startup, checkpoint
+resume, and ownership migration were not re-run against the runtime database.
+
+The application does not implement deployment-wide rate limiting. Configure
+request limits at the ingress or hosting layer before exposing the API to
+untrusted traffic; an in-process limit would not cover multiple workers.
 
 ## Docker
 

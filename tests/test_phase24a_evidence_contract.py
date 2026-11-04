@@ -390,6 +390,20 @@ class HotelAgentEvidenceTests(unittest.TestCase):
         ts = result["evidence"]["hotel"]["retrieved_at"]
         datetime.fromisoformat(ts)
 
+    def test_provider_failure_is_reported_as_unavailable_evidence(self):
+        from tripmate.agents.hotel import create_hotel_agent
+        from tripmate.core.exceptions import ExternalServiceError
+
+        with patch(
+            "tripmate.agents.hotel.asyncio.run",
+            side_effect=ExternalServiceError(),
+        ):
+            result = create_hotel_agent(MagicMock())({"user_query": "hotels in Paris"})
+
+        evidence = result["evidence"]["hotel"]
+        self.assertEqual(evidence["source"], "unavailable")
+        self.assertIn("unavailable", evidence["content"].lower())
+
 
 # ---------------------------------------------------------------------------
 # 6. Weather agent evidence
@@ -463,6 +477,25 @@ class WeatherAgentEvidenceTests(unittest.TestCase):
         result = self._run_weather_agent()
         ts = result["evidence"]["weather"]["retrieved_at"]
         datetime.fromisoformat(ts)
+
+    def test_provider_failures_are_reported_without_verified_records(self):
+        from tripmate.agents.weather import create_weather_agent
+        from tripmate.core.exceptions import ExternalServiceError
+
+        with patch(
+            "tripmate.agents.weather.extract_destination", return_value="London"
+        ), patch(
+            "tripmate.agents.weather.asyncio.run",
+            side_effect=ExternalServiceError(),
+        ):
+            result = create_weather_agent(MagicMock(), MagicMock())(
+                {"user_query": "weather in London"}
+            )
+
+        evidence = result["evidence"]["weather"]
+        self.assertEqual(evidence["source"], "unavailable")
+        self.assertFalse(evidence["is_verified"])
+        self.assertEqual(evidence["records"], [])
 
 
 # ---------------------------------------------------------------------------

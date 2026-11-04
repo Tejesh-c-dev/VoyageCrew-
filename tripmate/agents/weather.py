@@ -6,6 +6,7 @@ from typing import Any
 from langchain_core.messages import AIMessage
 
 from tripmate.core.observability import invoke_llm
+from tripmate.core.exceptions import ConfigurationError, ExternalServiceError
 from tripmate.agents.shared import AgentNode
 from tripmate.graph.evidence import make_evidence
 from tripmate.graph.state import TravelState
@@ -39,12 +40,19 @@ def create_weather_agent(
 ) -> AgentNode:
     def weather_agent(state: TravelState) -> dict[str, Any]:
         city = extract_destination(state["user_query"], llm)
-        weather_data = asyncio.run(
-            weather_mcp_search(integration, city)
-        )
-        forecast_data = asyncio.run(
-            forecast_mcp_search(integration, city)
-        )
+        unavailable = "Weather information unavailable from OpenWeather."
+        try:
+            weather_data = asyncio.run(weather_mcp_search(integration, city))
+            if weather_data is None:
+                weather_data = unavailable
+        except (ConfigurationError, ExternalServiceError):
+            weather_data = unavailable
+        try:
+            forecast_data = asyncio.run(forecast_mcp_search(integration, city))
+            if forecast_data is None:
+                forecast_data = unavailable
+        except (ConfigurationError, ExternalServiceError):
+            forecast_data = unavailable
         weather_results = f"""
 Current Weather:
 {weather_data}
@@ -56,15 +64,16 @@ Forecast:
         # OpenWeather MCP returns live API data (is_verified=True).
         # No LLM synthesis is performed; results are passed through directly
         # (is_estimate=False).
+        provider_available = weather_data != unavailable or forecast_data != unavailable
         weather_evidence = make_evidence(
-            source="openweather_mcp",
+            source="openweather_mcp" if provider_available else "unavailable",
             content=weather_results,
             is_estimate=False,   # live weather API data, not LLM-generated
-            is_verified=True,    # data comes from OpenWeather live API
+            is_verified=provider_available,
             records=[
                 {"type": "current_weather", "raw": str(weather_data)[:500]},
                 {"type": "forecast", "raw": str(forecast_data)[:500]},
-            ],
+            ] if provider_available else [],
         )
 
         return {

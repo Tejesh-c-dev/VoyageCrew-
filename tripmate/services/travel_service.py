@@ -6,10 +6,16 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage
 from langgraph.types import Command
+import psycopg
 
 from tripmate.agents.shared import empty_constraints
 from tripmate.core.exceptions import BadRequestError
-from tripmate.core.logging import get_correlation_id, get_logger, hash_thread_id
+from tripmate.core.logging import (
+    annotate_database_error,
+    get_correlation_id,
+    get_logger,
+    hash_thread_id,
+)
 from tripmate.core.observability import LLMInvocationTracker
 
 logger = get_logger(__name__)
@@ -103,6 +109,15 @@ class TravelService:
             "human_feedback": "",
             "final_response": "",
             "llm_calls": 0,
+            # Reducer-backed evidence must be reset for each new planning run
+            # on a reused thread so old searches cannot leak into this prompt.
+            "evidence": {
+                "flight": {},
+                "hotel": {},
+                "weather": {},
+                "budget": {},
+            },
+            "thread_id_hash": hash_thread_id(thread_id),
         }
         return self._invoke_workflow(
             invocation,
@@ -161,20 +176,27 @@ class TravelService:
         try:
             result = self._travel_graph.invoke(invocation, config=config)
         except Exception as exception:
-            logger.error(
-                "Travel workflow failed.",
-                extra={
-                    "event": "workflow.failed",
-                    "thread_id_hash": thread_id_hash,
-                    "duration_ms": round(
-                        (perf_counter() - started_at) * 1000,
-                        2,
-                    ),
-                    "llm_calls": tracker.snapshot(),
-                    "error_type": type(exception).__name__,
-                    "outcome": "failure",
-                },
-            )
+            if isinstance(exception, psycopg.Error):
+                annotate_database_error(
+                    exception,
+                    operation="langgraph_workflow_start",
+                    phase="workflow_start",
+                )
+            else:
+                logger.error(
+                    "Travel workflow failed.",
+                    extra={
+                        "event": "workflow.failed",
+                        "thread_id_hash": thread_id_hash,
+                        "duration_ms": round(
+                            (perf_counter() - started_at) * 1000,
+                            2,
+                        ),
+                        "llm_calls": tracker.snapshot(),
+                        "error_type": type(exception).__name__,
+                        "outcome": "failure",
+                    },
+                )
             raise
 
         result["llm_calls"] = tracker.snapshot()

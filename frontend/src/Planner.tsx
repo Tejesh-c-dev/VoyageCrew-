@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
-import { api, apiMessage, installTokenProvider } from './api';
+import { api, apiMessage, createClerkTokenProvider, installTokenProvider } from './api';
 import './style.css';
 
 type Result = { success: boolean; thread_id: string; answer: string; itinerary: string; requires_approval: boolean; approval_request: string; selected_agents: string[]; supervisor_reasoning: string; guardrail_allowed: boolean; guardrail_reason: string; };
@@ -16,7 +16,7 @@ if (typeof window !== 'undefined') window.tripmateRenderMarkdown = sanitizeMarkd
 function SafeMarkdown({ value }: { value: string }) {
   const html = sanitizeMarkdown(value);  return <div className="result-box" dangerouslySetInnerHTML={{ __html: html }} />;
 }
-export function Planner() {
+export function Planner({ jwtTemplate }: { jwtTemplate: string }) {
   const { isLoaded, isSignedIn, getToken } = useAuth();
   const { user } = useUser();
   const [input, setInput] = useState(''); const [feedback, setFeedback] = useState('');
@@ -24,8 +24,8 @@ export function Planner() {
   const owner = user?.id || null; const busyRef = useRef(false); const priorOwner = useRef<string | null>(null); const requestVersion = useRef(0);
   const thread = useRef<string | null>(null);
   useEffect(() => {
-    installTokenProvider(async () => await getToken());
-  }, [getToken]);
+    installTokenProvider(createClerkTokenProvider(getToken, jwtTemplate));
+  }, [getToken, jwtTemplate]);
   useEffect(() => {
     if (priorOwner.current !== owner) {
       requestVersion.current++; thread.current = null; setResult(null); setError(''); setBusy(false);

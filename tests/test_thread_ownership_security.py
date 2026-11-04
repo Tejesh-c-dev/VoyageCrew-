@@ -16,8 +16,13 @@ from fastapi.testclient import TestClient
 
 import main
 from tripmate.api import auth
+from tripmate.api.request_size import MAX_TRAVEL_REQUEST_SIZE
 from tripmate.core.config import Settings
-from tripmate.core.exceptions import AuthenticationError, ThreadNotFoundError
+from tripmate.core.exceptions import (
+    AuthenticationError,
+    ItineraryPromptTooLargeError,
+    ThreadNotFoundError,
+)
 
 
 ISSUER = "https://clerk.tripmate.test"
@@ -111,25 +116,36 @@ class AuthenticationVerificationTests(unittest.TestCase):
         with self.assertRaises(AuthenticationError):
             self.verify(authorization, settings)
 
+    def assert_rejected_as(self, authorization, category, settings=None):
+        with self.assertRaises(AuthenticationError) as raised:
+            self.verify(authorization, settings)
+        self.assertEqual(raised.exception.error_code, f"AUTH_{category.upper()}")
+
     def test_missing_bearer_token_is_rejected(self):
-        self.assert_rejected(None)
+        self.assert_rejected_as(None, "missing_authorization")
 
     def test_malformed_jwt_is_rejected(self):
         self.assert_rejected("Bearer not.a.jwt")
 
     def test_invalid_signature_is_rejected(self):
         other_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-        self.assert_rejected("Bearer " + make_token(other_key))
+        self.assert_rejected_as("Bearer " + make_token(other_key), "invalid_signature")
 
     def test_expired_token_is_rejected(self):
         past = datetime.now(timezone.utc) - timedelta(minutes=5)
-        self.assert_rejected("Bearer " + make_token(self.key, exp=past, iat=past - timedelta(minutes=1)))
+        self.assert_rejected_as("Bearer " + make_token(self.key, exp=past, iat=past - timedelta(minutes=1)), "expired_token")
+
+    def test_not_yet_valid_token_is_rejected(self):
+        future = datetime.now(timezone.utc) + timedelta(minutes=5)
+        self.assert_rejected_as(
+            "Bearer " + make_token(self.key, nbf=future), "not_yet_valid_token"
+        )
 
     def test_incorrect_issuer_is_rejected(self):
-        self.assert_rejected("Bearer " + make_token(self.key, iss="https://wrong.test"))
+        self.assert_rejected_as("Bearer " + make_token(self.key, iss="https://wrong.test"), "issuer_mismatch")
 
     def test_incorrect_audience_is_rejected(self):
-        self.assert_rejected("Bearer " + make_token(self.key, aud="wrong-audience"))
+        self.assert_rejected_as("Bearer " + make_token(self.key, aud="wrong-audience"), "audience_mismatch")
 
     def test_valid_clerk_rs256_token_authenticates(self):
         identity = self.verify("Bearer " + make_token(self.key))
@@ -137,9 +153,28 @@ class AuthenticationVerificationTests(unittest.TestCase):
         self.assertEqual(identity.subject, "user_clerk_a")
 
     def test_unavailable_jwks_fails_safely(self):
-        self.client.get_signing_key_from_jwt.side_effect = RuntimeError("network details")
-        with self.assertRaises(AuthenticationError):
+        self.client.get_signing_key_from_jwt.side_effect = auth.PyJWKClientConnectionError("network details")
+        with self.assertRaises(AuthenticationError) as raised:
             self.verify("Bearer " + make_token(self.key))
+        self.assertEqual(raised.exception.error_code, "AUTH_JWKS_RETRIEVAL")
+        self.assertNotIn("network details", str(raised.exception))
+
+    def test_jwks_connection_failure_is_distinct_from_signature_failure(self):
+        self.client.get_signing_key_from_jwt.side_effect = auth.PyJWKClientConnectionError(
+            "connection details"
+        )
+        self.assert_rejected_as(
+            "Bearer " + make_token(self.key), "jwks_retrieval"
+        )
+
+    def test_unexpected_verification_failure_has_own_category(self):
+        with patch.object(auth.jwt, "decode", side_effect=RuntimeError("internal")):
+            self.assert_rejected_as(
+                "Bearer " + make_token(self.key), "verification_error"
+            )
+
+    def test_malformed_token_has_safe_invalid_token_category(self):
+        self.assert_rejected_as("Bearer not.a.jwt", "invalid_token")
 
     def test_real_rs256_jwt_is_verified_against_http_jwks(self):
         with JWKSFixture() as jwks:
@@ -244,6 +279,92 @@ class ThreadOwnershipApiTests(unittest.TestCase):
         self.assertEqual(self.service.start.call_count, 2)
         self.assertEqual(self.service.start.call_args_list[1].kwargs["thread_id"], thread_id)
         self.service.resume.assert_called_once_with(thread_id=thread_id, approved=True, feedback="")
+
+    def test_itinerary_prompt_budget_rejection_is_sanitized_for_api_client(self):
+        self.service.start.side_effect = ItineraryPromptTooLargeError()
+        response = self.client.post(
+            "/api/travel",
+            headers=self.headers("A"),
+            json={"message": "Plan a trip"},
+        )
+        self.assertEqual(response.status_code, 413)
+        self.assertEqual(response.json(), {
+            "success": False,
+            "code": "ITINERARY_PROMPT_TOO_LARGE",
+            "error": (
+                "The itinerary request is too large to process. Please simplify "
+                "your request and try again."
+            ),
+        })
+        self.assertNotIn("token", response.text.lower())
+
+    def test_small_http_body_and_oversized_prompt_have_distinct_error_code(self):
+        self.service.start.side_effect = ItineraryPromptTooLargeError()
+        response = self.client.post(
+            "/api/travel",
+            headers=self.headers("A"),
+            json={"message": "Plan Kyoto"},
+        )
+        self.assertEqual(response.status_code, 413)
+        self.assertEqual(response.json()["code"], "ITINERARY_PROMPT_TOO_LARGE")
+        self.assertLess(len(response.request.content), MAX_TRAVEL_REQUEST_SIZE)
+
+    def test_travel_request_immediately_below_http_body_limit_is_accepted(self):
+        prefix = b'{"message":"'
+        suffix = b'"}'
+        body = prefix + b"x" * (MAX_TRAVEL_REQUEST_SIZE - len(prefix) - len(suffix) - 1) + suffix
+        self.assertEqual(len(body), MAX_TRAVEL_REQUEST_SIZE - 1)
+        response = self.client.post(
+            "/api/travel",
+            headers={**self.headers("A"), "Content-Type": "application/json"},
+            content=body,
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.service.start.call_count, 1)
+        self.assertEqual(
+            self.service.start.call_args.kwargs["user_input"],
+            "x" * (MAX_TRAVEL_REQUEST_SIZE - len(prefix) - len(suffix) - 1),
+        )
+
+    def test_travel_request_above_http_body_limit_returns_sanitized_413(self):
+        body = b'{"message":"Plan a trip","conversation_history":"' + (
+            b"x" * MAX_TRAVEL_REQUEST_SIZE
+        ) + b'"}'
+        response = self.client.post(
+            "/api/travel",
+            headers={**self.headers("A"), "Content-Type": "application/json"},
+            content=body,
+        )
+        self.assertEqual(response.status_code, 413)
+        self.assertEqual(response.json(), {
+            "success": False,
+            "code": "REQUEST_BODY_TOO_LARGE",
+            "error": "The travel request body exceeds the 64 KiB limit.",
+        })
+        self.service.start.assert_not_called()
+
+    def test_travel_request_preserves_required_fields_and_optional_thread_id(self):
+        response = self.client.post(
+            "/api/travel",
+            headers=self.headers("A"),
+            json={"message": "Plan Kyoto with step-free access", "thread_id": None},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.service.start.assert_called_once()
+        self.assertEqual(
+            self.service.start.call_args.kwargs["user_input"],
+            "Plan Kyoto with step-free access",
+        )
+
+    def test_small_malformed_travel_body_still_returns_validation_error(self):
+        response = self.client.post(
+            "/api/travel",
+            headers={**self.headers("A"), "Content-Type": "application/json"},
+            content=b'{"thread_id":',
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["error"], "The request is invalid.")
+        self.service.start.assert_not_called()
 
     def test_user_b_cannot_access_approve_or_resume_user_a_thread(self):
         thread_id = self.create_thread()

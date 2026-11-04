@@ -138,7 +138,7 @@ class CheckpointerTests(unittest.TestCase):
         pool = MagicMock()
         saver = MagicMock()
         with patch("tripmate.persistence.checkpointer.ConnectionPool", return_value=pool) as pool_cls, \
-             patch("tripmate.persistence.checkpointer.PostgresSaver", return_value=saver) as saver_cls:
+             patch("tripmate.persistence.checkpointer.DiagnosticPostgresSaver", return_value=saver) as saver_cls:
             resources = create_checkpointer(settings)
         pool.open.assert_called_once()
         saver_cls.assert_called_once_with(pool)
@@ -151,7 +151,7 @@ class CheckpointerTests(unittest.TestCase):
     def test_setup_failure_closes_pool(self):
         pool = MagicMock()
         with patch("tripmate.persistence.checkpointer.ConnectionPool", return_value=pool), \
-             patch("tripmate.persistence.checkpointer.PostgresSaver") as saver_cls:
+             patch("tripmate.persistence.checkpointer.DiagnosticPostgresSaver") as saver_cls:
             saver_cls.return_value.setup.side_effect = RuntimeError("setup failed")
             with self.assertRaisesRegex(RuntimeError, "setup failed"):
                 create_checkpointer(Settings(None, "postgresql://x/db", None, None, None, None))
@@ -208,6 +208,12 @@ class TravelServiceTests(unittest.TestCase):
         result = TravelService(graph).start("plan a trip")
         self.assertTrue(result["thread_id"].startswith("user_"))
         self.assertEqual(result["answer"], "ready")
+        invocation = graph.invoke.call_args.args[0]
+        self.assertEqual(
+            invocation["evidence"],
+            {"flight": {}, "hotel": {}, "weather": {}, "budget": {}},
+        )
+        self.assertEqual(len(invocation["thread_id_hash"]), 16)
 
     def test_resume_requires_thread_id(self):
         with self.assertRaises(BadRequestError):

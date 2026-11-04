@@ -1,5 +1,11 @@
 import axios from 'axios';
 export const api = axios.create();
+export function createClerkTokenProvider(
+  getToken: (options: { template: string }) => Promise<string | null>,
+  template: string,
+): () => Promise<string | null> {
+  return () => getToken({ template });
+}
 export function installTokenProvider(provider: () => Promise<string | null>) {
   api.interceptors.request.clear();
   api.interceptors.request.use(async config => {
