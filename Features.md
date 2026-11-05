@@ -1,60 +1,39 @@
-# TripMate features
+# VoyageCrew Features
 
-TripMate accepts travel-planning requests, selects specialist agents, gathers
-provider information, and prepares an itinerary for human review before
-producing a final response.
+VoyageCrew is an AI travel planner that turns a traveler’s request into a tailored itinerary. It combines specialist agents for travel research with a review step, so users can refine a draft before receiving the final plan.
 
-## User experience
+## Traveler experience
 
-- Sign-in through Clerk with account-scoped planner threads.
-- Responsive React planner with suggested prompts, workflow status, draft
-  review and revision, and final itinerary display.
-- Markdown output is sanitized with DOMPurify. Users can copy a plan or export
-  it as a PDF; PDF dependencies load only when export is requested.
-- FastAPI serves the production Vite bundle, its assets, runtime Clerk
-  configuration, and client-side routes.
+- Sign in through Clerk and plan trips in a responsive React interface.
+- Describe the destination, origin, dates or duration, budget, travel style, and preferences. Suggested prompts help users get started.
+- See whether a request passed the input guardrail, which specialists were selected, and the supervisor’s routing summary.
+- Review the draft itinerary before completion. Approve it to generate the final response, or provide feedback to revise it.
+- Copy the displayed plan or export it as a PDF. Markdown is sanitized before rendering in the browser.
+- Keep a planner thread in the signed-in session. The backend checks thread ownership on both planning and approval requests.
 
-## Planning workflow
+## Planning capabilities
 
-- An input guardrail and supervisor route allowed requests to flight, hotel,
-  weather, budget, and itinerary specialists.
-- MCP integrations connect AviationStack, Tavily, and the local OpenWeather
-  server. Provider results and generated estimates are tracked as evidence.
-- The itinerary pauses for human approval or revision. PostgreSQL-backed
-  LangGraph checkpoints preserve workflow state between requests.
-- API thread ownership is stored in PostgreSQL and checked on travel and
-  approval routes.
+- An input guardrail checks the request before planning. The supervisor routes allowed requests to the relevant flight, hotel, weather, budget, and itinerary specialists; the itinerary specialist is always included.
+- Specialists run in a fixed order and contribute research or estimates to the trip plan. Provider integrations use AviationStack for flight-related information, Tavily for web search, and a local OpenWeather MCP server for current weather and forecasts.
+- The workflow gathers evidence from specialist results, assembles a draft, and pauses for human approval. Feedback resumes the same workflow thread for revision; approval continues to the final response.
+- LangGraph checkpoints in PostgreSQL preserve workflow state across requests. PostgreSQL also stores thread ownership so one account cannot continue another account’s planner thread.
 
-## Project structure
+## Application architecture
+
+FastAPI serves the production React frontend and provides authenticated travel and approval endpoints, runtime frontend configuration, and health and readiness checks. LangGraph coordinates the stateful planning workflow. MCP adapters manage connections to external travel and search providers, and PostgreSQL backs checkpoints and thread ownership. The application also includes request-size limits, structured request logging, correlation IDs, and centralized API error handling.
 
 | Location | Responsibility |
 |---|---|
 | `main.py` | FastAPI application and lifecycle |
-| `tripmate/api/` | Authentication, schemas, route handlers, and error responses |
-| `tripmate/agents/` | Guardrail, supervisor, specialist, approval, and final workflow nodes |
-| `tripmate/graph/` | LangGraph state, routing, evidence, and graph construction |
-| `tripmate/integrations/mcp/` | MCP providers and client setup |
-| `tripmate/persistence/` | PostgreSQL checkpointer, thread ownership, and SQL migrations |
-| `frontend/src/` | React planner, API client, and styles |
-| `tests/` | Python regression tests and Playwright browser tests |
-| `Dockerfile` | Multi-stage frontend build and Python application image |
+| `tripmate/api/` | Authentication, request schemas, and routes |
+| `tripmate/agents/` and `tripmate/graph/` | Specialist agents, workflow state, routing, and approvals |
+| `tripmate/integrations/mcp/` | External provider connections |
+| `tripmate/persistence/` | PostgreSQL checkpoints and thread ownership |
+| `frontend/src/` | React planner interface and API client |
+| `tests/` | Backend and browser regression coverage |
 
-## Release verification status
+## Runtime dependencies
 
-- `npm run build --prefix frontend` — passed without a Vite chunk size warning.
-  The largest initial JavaScript chunk is 428.31 kB, under the 500 kB threshold.
-- `npm test --prefix frontend` — passed (2 tests).
-- `npm run test:playwright` — passed (17 tests) against the production bundle
-  served through FastAPI. Clerk and planner API calls are mocked in Playwright;
-  Python tests cover FastAPI route and ownership behavior.
-- `python tests/run_tests.py` — 250 discovered; 240 passed and 2 PostgreSQL
-  integration tests skipped. The run retains a Pydantic
-  `IncompleteFieldDefinitionWarning` from a dependency's unresolved `lifespan`
-  annotation. No unawaited-coroutine warning remains.
-- PostgreSQL-backed ownership and migration verification is pending until the
-  integration tests run against a disposable local database.
-- Docker image verification is pending because the Docker Desktop engine was
-  unavailable during the audit.
+The application uses Clerk for authentication, Groq for language-model requests, PostgreSQL for durable workflow state and account-scoped threads, and MCP integrations for provider information. Provider credentials are required for their corresponding live data. The frontend is built with Vite and served by FastAPI in production; Docker packages the frontend build and Python application together.
 
-See [the React migration and release readiness report](docs/REACT_MIGRATION_PROGRESS.md)
-for verification scope and limitations.
+For installation, configuration, API details, and verification status, see [README.md](README.md).

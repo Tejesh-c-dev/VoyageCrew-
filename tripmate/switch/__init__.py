@@ -1,0 +1,2 @@
+"""Switch agent protocol types."""
+

@@ -24,6 +24,7 @@ class TravelState(TypedDict, total=False):
     budget_results: str
     approval_request: str
     approved: bool
+    rejected: bool
     human_feedback: str
     final_response: str
     llm_calls: int

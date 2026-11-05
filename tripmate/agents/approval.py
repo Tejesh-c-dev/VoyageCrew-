@@ -26,6 +26,7 @@ def human_approval_agent(state: TravelState) -> dict[str, Any]:
     human_feedback = str(review.get("feedback", "")).strip()
     return {
         "approved": approved,
+        "rejected": bool(review.get("rejected", False)),
         "human_feedback": human_feedback,
         "messages": [AIMessage(content="Human approval step completed.")],
     }

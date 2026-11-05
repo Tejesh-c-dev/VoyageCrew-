@@ -41,6 +41,10 @@ from tripmate.integrations.mcp.client import MCPIntegration
 logger = get_logger(__name__)
 
 
+def _route_after_approval(state: TravelState) -> str:
+    return "end" if state.get("rejected", False) else "final_agent"
+
+
 def _observed_node(agent_name: str, node: Any):
     def run(
         state: TravelState,
@@ -193,7 +197,11 @@ def build_travel_graph(
         "budget_agent", route_after_agent("budget_agent"), ROUTE_MAP
     )
     graph.add_edge("itinerary_agent", "human_approval")
-    graph.add_edge("human_approval", "final_agent")
+    graph.add_conditional_edges(
+        "human_approval",
+        _route_after_approval,
+        {"end": END, "final_agent": "final_agent"},
+    )
     graph.add_edge("final_agent", END)
     graph.add_edge("guardrail_blocked", END)
 
