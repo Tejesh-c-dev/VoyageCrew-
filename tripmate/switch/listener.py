@@ -66,6 +66,7 @@ class VoyageCrewListener:
         invocation = {
             "messages": [HumanMessage(content=body)],
             "user_query": body,
+            "switch_thread_id": thread_id,
         }
         config = {"configurable": {"thread_id": thread_id}}
         if hasattr(self.graph, "ainvoke"):

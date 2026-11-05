@@ -29,6 +29,7 @@ class TravelState(TypedDict, total=False):
     final_response: str
     llm_calls: int
     thread_id_hash: str
+    switch_thread_id: str
     # Evidence contract (Phase 2.4-A): provenance for all specialist results.
     # Uses merge_evidence reducer so each agent's sub-key is preserved
     # independently across the sequential pipeline.

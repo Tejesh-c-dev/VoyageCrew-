@@ -243,3 +243,24 @@ async def test_post_message_operation_rejects_missing_connection_before_request(
         with pytest.raises(ValueError):
             await client.post_message_operation(None, {})
     factory.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_write_room_document_uses_switch_connection_header_and_payload():
+    response = Mock(status_code=200, json=lambda: {"ok": True}, raise_for_status=Mock())
+    post = AsyncMock(return_value=response)
+    with patch("tripmate.switch.client.httpx.AsyncClient") as factory:
+        factory.return_value.__aenter__ = AsyncMock(return_value=factory.return_value)
+        factory.return_value.__aexit__ = AsyncMock(return_value=False)
+        factory.return_value.post = post
+        client = SwitchAgentClient("https://x.example", "agent", "secret", "conn-1")
+        assert await client.write_room_document("room-1", "Kyoto Trip Plan", "# Plan") == {"ok": True}
+    args, kwargs = post.call_args
+    assert args[0] == "https://x.example/agents/agent/ops/create_room_document"
+    assert kwargs["headers"] == {
+        "Authorization": "Bearer secret",
+        "X-Switch-Connection-Id": "conn-1",
+    }
+    assert kwargs["json"] == {
+        "room_id": "room-1", "document_name": "Kyoto Trip Plan", "content": "# Plan"
+    }

@@ -2,6 +2,7 @@
 
 from typing import Any
 from time import perf_counter
+from datetime import datetime, timezone
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.errors import GraphInterrupt
@@ -116,12 +117,56 @@ def build_travel_graph(
     checkpointer: Any,
     llm: Any,
     integration: MCPIntegration,
+    switch_client: Any = None,
+    switch_room_id: str | None = None,
 ):
     def input_guardrail_node(state: TravelState) -> dict[str, Any]:
         return guardrail_agent(state, llm)
 
     def supervisor_node(state: TravelState) -> dict[str, Any]:
         return supervisor_agent(state, llm)
+
+    def itinerary_node(state: TravelState) -> dict[str, Any]:
+        update = create_itinerary_agent(llm)(state)
+        if switch_client is not None and switch_room_id:
+            import asyncio
+            async def post_draft():
+                await switch_client.send_message(
+                    switch_room_id,
+                    f"{update['itinerary']}\n\n{update['approval_request']}",
+                )
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                asyncio.run(post_draft())
+            else:
+                raise RuntimeError("Switch graph nodes require a synchronous graph execution context")
+        return update
+
+    def approval_node(state: TravelState) -> dict[str, Any]:
+        update = human_approval_agent(state)
+        if switch_client is not None and switch_room_id and update.get("rejected"):
+            import asyncio
+            asyncio.run(switch_client.send_message(switch_room_id, "HOLD — no changes made."))
+        return update
+
+    def final_node(state: TravelState) -> dict[str, Any]:
+        update = create_final_agent(llm)(state)
+        if switch_client is not None and switch_room_id:
+            import asyncio
+            async def publish():
+                plan = update.get("final_response", "")
+                try:
+                    await switch_client.write_room_document(switch_room_id, "Kyoto Trip Plan", plan)
+                except Exception:
+                    await switch_client.send_message(switch_room_id, plan)
+                timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+                await switch_client.send_message(
+                    switch_room_id,
+                    f"Kyoto Trip Plan created. Thread: {state.get('switch_thread_id', 'unknown')}. Approved at: {timestamp}",
+                )
+            asyncio.run(publish())
+        return update
 
     graph = StateGraph(TravelState)
     graph.add_node(
@@ -163,15 +208,15 @@ def build_travel_graph(
     )
     graph.add_node(
         "itinerary_agent",
-        _observed_node("itinerary_agent", create_itinerary_agent(llm)),
+        _observed_node("itinerary_agent", itinerary_node),
     )
     graph.add_node(
         "human_approval",
-        _observed_node("human_approval", human_approval_agent),
+        _observed_node("human_approval", approval_node),
     )
     graph.add_node(
         "final_agent",
-        _observed_node("final_agent", create_final_agent(llm)),
+        _observed_node("final_agent", final_node),
     )
 
     graph.add_edge(START, "guardrail")

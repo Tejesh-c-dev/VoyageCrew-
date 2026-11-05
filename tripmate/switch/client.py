@@ -1,4 +1,4 @@
-"""Read-only WebSocket client for the Switch agent connection protocol."""
+"""Switch WebSocket and room operations client."""
 
 import asyncio
 import json
@@ -93,6 +93,20 @@ class SwitchAgentClient:
                     "X-Connection-ID": connection_id,
                 },
                 json=arguments,
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def write_room_document(self, room_id: str, document_name: str, content: str):
+        """Create a document in a room using the active Switch connection."""
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{self.server_url}/agents/{quote(self.agent_id, safe='')}/ops/create_room_document",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "X-Switch-Connection-Id": self.connection_id,
+                },
+                json={"room_id": room_id, "document_name": document_name, "content": content},
             )
             response.raise_for_status()
             return response.json()

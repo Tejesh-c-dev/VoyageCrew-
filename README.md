@@ -259,3 +259,55 @@ The Vite development server proxies `/api` to FastAPI. Create the production bun
 - Disposable PostgreSQL migration and ownership checks passed, including cross-user isolation. The production Docker image built and its container passed health/readiness, React asset, and API smoke checks. See the migration report for exact results.
 
 See [the React migration and release readiness report](docs/REACT_MIGRATION_PROGRESS.md) for scope and details.
+
+## Built during the hackathon
+
+### Starting point
+
+The starting point is recorded in the [`hackathon-start` tag](../../tree/hackathon-start).
+
+### What existed before
+
+The repository already contained a LangGraph multi-agent workflow, a FastAPI
+backend, a React frontend, PostgreSQL-backed checkpoints, MCP integrations for
+AviationStack, Tavily, and OpenWeather, and the FastAPI
+`/api/travel/approve` endpoint.
+
+### What was built during the hackathon
+
+The hackathon added the Switch protocol client in `tripmate/switch/`, the
+listener bridge into the travel workflow, a fail-closed approval parser,
+room-document writes that occur only after approval, receipt and HOLD messages,
+and demo entry scripts for registering agents and running the listener.
+
+### Design decision — fail-closed approval
+
+If approval cannot be confirmed, the system holds and writes nothing. This is
+deliberate and non-negotiable: the Switch approval path replaces the previous
+fail-open guardrail behavior, where parsing or model failures could fall
+through without a confirmed approval.
+
+## Built during the hackathon
+
+**Hackathon:** Flip the Switch Hackathon — Nov 4–7, 2026
+**Track:** Track 2 — Best Personal or Creative Workflow
+
+### Starting point
+See the [`hackathon-start`](../../releases/tag/hackathon-start) tag for the exact state of the repository before the Switch integration began.
+
+### What existed before
+- LangGraph multi-agent workflow with specialist nodes (flights, stays, weather, budget, itinerary)
+- FastAPI backend, React frontend, PostgreSQL checkpoints
+- MCP integrations (AviationStack, Tavily, OpenWeather)
+- FastAPI `/api/travel/approve` endpoint for human approval (the "black box" button)
+
+### What was built during the hackathon
+- **Switch Protocol Client (`tripmate/switch/`):** Custom WebSocket implementation handling connection state, application-level ping/pong, cursor/generation tracking, and graceful reconnects.
+- **Listener Bridge:** Maps Switch room messages to LangGraph state, starting the graph on trip requests and resuming it on human decisions.
+- **Fail-Closed Approval Parser:** Strictly enforces the `APPROVE itinerary`, `REVISE: <change>`, and `REJECT` vocabulary.
+- **Room-Document Write & Fallback:** On approval, writes the final plan to the Switch room document (with a structured Markdown message fallback if the document API fails).
+- **Safety Messages:** Posts the "HOLD — no changes made" message on rejection and a receipt on approval.
+- **Demo Entry Scripts:** Automated registration and listener startup scripts.
+
+### Design decision: fail-closed approval
+If approval cannot be confirmed (model failure, ambiguous input, or parse error), the system **HOLDS** and writes nothing to the shared document. The previous FastAPI implementation had a fail-open fallback; in a human-gated workflow, fail-open would undermine the entire safety property. The gate is deliberately and non-negotiably fail-closed.
