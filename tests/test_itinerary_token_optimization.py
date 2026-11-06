@@ -10,6 +10,8 @@ from tripmate.agents.itinerary import (
     ITINERARY_COMBINED_TOKEN_BUDGET,
     ITINERARY_INPUT_TOKEN_BUDGET,
     ITINERARY_MAX_COMPLETION_TOKENS,
+    ITINERARY_REASONING_EFFORT,
+    ITINERARY_RETRY_REASONING_EFFORT,
     ITINERARY_TPM_SAFETY_MARGIN,
     ITINERARY_TPM_TOKEN_TARGET,
     _count_message_tokens,
@@ -196,6 +198,38 @@ class ItineraryTokenOptimizationTests(unittest.TestCase):
         self.assertIn("JPY 18,500", prompt)
         self.assertNotIn("metadata", prompt)
 
+    def test_prior_conversation_is_shed_before_current_request_or_constraints(self):
+        llm = MagicMock()
+        current_request = "Keep this exact current request: " + "quiet gardens " * 12
+        old_request = "Old conversation detail " * 7_000
+        constraints = {
+            "destination": "Kyoto",
+            "dates": "2026-11-10 to 2026-11-15",
+            "mobility": "step-free access",
+            "diet": "vegetarian",
+            "special_note": "Preserve this constraint verbatim.",
+        }
+        state = _state(
+            user_query=current_request,
+            trip_constraints=constraints,
+            messages=[HumanMessage(content=old_request), HumanMessage(content=current_request)],
+            evidence={"flight": {"source": "llm", "is_estimate": True, "is_verified": False}},
+        )
+        with patch("tripmate.agents.itinerary.invoke_llm", return_value=AIMessage(content=_valid_draft())) as invoke:
+            create_itinerary_agent(llm)(state)
+        prompt = invoke.call_args.args[1][1].content
+        self.assertNotIn("Old conversation detail", prompt)
+        self.assertIn(current_request, prompt)
+        self.assertIn("Preserve this constraint verbatim.", prompt)
+        self.assertIn("step-free access", prompt)
+        self.assertIn("vegetarian", prompt)
+        self.assertIn("ESTIMATE", prompt)
+        self.assertIn("Flight prices and real-time seat availability", prompt)
+        self.assertLessEqual(
+            _count_message_tokens(invoke.call_args.args[1]),
+            ITINERARY_INPUT_TOKEN_BUDGET,
+        )
+
     def test_message_token_count_includes_formatting_overhead(self):
         messages = _prompt_messages(_state())
         count = _count_message_tokens(messages, "openai/gpt-oss-120b")
@@ -254,6 +288,37 @@ class ItineraryTokenOptimizationTests(unittest.TestCase):
         self.assertEqual(record.thread_id_hash, "ab12cd34ef56ab78")
         self.assertGreaterEqual(record.remaining_available_tokens, 0)
         self.assertNotIn("Sensitive destination request marker", captured.output)
+
+    def test_gpt_oss_generation_uses_bounded_reasoning_and_disables_it_on_retry(self):
+        llm = MagicMock()
+        llm.model_name = "openai/gpt-oss-120b"
+        truncated = AIMessage(
+            content="partial",
+            response_metadata={"finish_reason": "length"},
+        )
+        complete = AIMessage(content=_valid_draft())
+        with patch(
+            "tripmate.agents.itinerary.invoke_llm",
+            side_effect=[truncated, complete],
+        ) as invoke:
+            result = create_itinerary_agent(llm)(_state())
+
+        self.assertEqual(result["itinerary"], _valid_draft())
+        self.assertEqual(
+            llm.bind.call_args_list[0].kwargs,
+            {
+                "max_completion_tokens": ITINERARY_MAX_COMPLETION_TOKENS,
+                "reasoning_effort": ITINERARY_REASONING_EFFORT,
+            },
+        )
+        self.assertEqual(
+            llm.bind.call_args_list[1].kwargs,
+            {
+                "max_completion_tokens": ITINERARY_MAX_COMPLETION_TOKENS,
+                "reasoning_effort": ITINERARY_RETRY_REASONING_EFFORT,
+            },
+        )
+        self.assertEqual(invoke.call_count, 2)
 
     def test_oversized_mandatory_input_fails_before_provider_call(self):
         llm = MagicMock()

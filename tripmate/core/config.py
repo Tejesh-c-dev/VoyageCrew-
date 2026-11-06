@@ -24,11 +24,6 @@ class Settings:
     aviation_stack_api_key: str | None
     openweather_api_key: str | None
     groq_model: str = DEFAULT_GROQ_MODEL
-    clerk_issuer: str | None = None
-    clerk_audience: str | None = None
-    clerk_publishable_key: str | None = None
-    clerk_frontend_api_url: str | None = None
-    clerk_jwt_template: str = "VoyageCrew"
 
     def require_database_url(self) -> str:
         if not self.database_url:
@@ -95,11 +90,6 @@ def load_settings(project_root: Path = PROJECT_ROOT) -> Settings:
             or os.getenv("AVIATIONSTACK_API_KEY")
         ),
         openweather_api_key=os.getenv("OPENWEATHER_API_KEY"),
-        clerk_issuer=os.getenv("CLERK_ISSUER"),
-        clerk_audience=os.getenv("CLERK_AUDIENCE"),
-        clerk_publishable_key=os.getenv("CLERK_PUBLISHABLE_KEY"),
-        clerk_frontend_api_url=os.getenv("CLERK_FRONTEND_API_URL"),
-        clerk_jwt_template=os.getenv("CLERK_JWT_TEMPLATE", "VoyageCrew"),
     )
 
 

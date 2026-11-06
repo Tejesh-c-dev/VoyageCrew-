@@ -24,6 +24,8 @@ ITINERARY_MAX_COMPLETION_TOKENS = 1_536
 ITINERARY_MAX_ATTEMPTS = 2
 ITINERARY_TPM_TOKEN_TARGET = 8_000
 ITINERARY_TPM_SAFETY_MARGIN = 500
+ITINERARY_REASONING_EFFORT = "low"
+ITINERARY_RETRY_REASONING_EFFORT = "none"
 ITINERARY_RESERVE_TOKENS = (
     ITINERARY_TPM_TOKEN_TARGET - ITINERARY_INPUT_TOKEN_BUDGET
 )
@@ -149,7 +151,11 @@ def _output_limit_reached(response: Any) -> bool:
     }
 
 
-def _history_context(state: TravelState) -> tuple[str, int, int]:
+def _history_context(
+    state: TravelState,
+    *,
+    max_turns: int | None = None,
+) -> tuple[str, int, int]:
     """Return prior user turns, excluding accumulated assistant/node outputs."""
     messages = state.get("messages", [])
     user_messages = [
@@ -162,7 +168,12 @@ def _history_context(state: TravelState) -> tuple[str, int, int]:
     current_query = str(state.get("user_query", ""))
     if user_messages and user_messages[-1].strip() == current_query.strip():
         user_messages.pop()
-    relevant = user_messages
+    if max_turns is None:
+        relevant = user_messages
+    elif max_turns <= 0:
+        relevant = []
+    else:
+        relevant = user_messages[-max_turns:]
     context = "\n\n".join(
         f"Prior request {index + 1}:\n{message}"
         for index, message in enumerate(relevant)
@@ -223,9 +234,10 @@ def _prompt_messages(
     *,
     concise: bool = False,
     compact_research: bool = False,
+    history_turn_limit: int | None = None,
 ) -> list[Any]:
     evidence = state.get("evidence", {})
-    history, _, _ = _history_context(state)
+    history, _, _ = _history_context(state, max_turns=history_turn_limit)
     compact = _compact_research_value if compact_research else _compact_value
     result_fields = {
         f"{name}_results": compact(state.get(f"{name}_results", ""))
@@ -307,8 +319,12 @@ def _prompt_token_breakdown(
     model: str | None,
     *,
     compact_research: bool,
+    history_turn_limit: int | None = None,
 ) -> dict[str, int]:
-    history, prior_user_turns, included_history_turns = _history_context(state)
+    history, prior_user_turns, included_history_turns = _history_context(
+        state,
+        max_turns=history_turn_limit,
+    )
     content = str(messages[1].content)
     query = str(state.get("user_query", ""))
     compact = _compact_research_value if compact_research else _compact_value
@@ -386,26 +402,56 @@ def _log_prompt_budget(
 
 
 def create_itinerary_agent(llm: Any) -> AgentNode:
+    def generation_kwargs(
+        model_name: Any,
+        *,
+        retry: bool,
+    ) -> dict[str, Any]:
+        kwargs: dict[str, Any] = {
+            "max_completion_tokens": ITINERARY_MAX_COMPLETION_TOKENS,
+        }
+        if isinstance(model_name, str) and "gpt-oss" in model_name.casefold():
+            kwargs["reasoning_effort"] = (
+                ITINERARY_RETRY_REASONING_EFFORT
+                if retry
+                else ITINERARY_REASONING_EFFORT
+            )
+        return kwargs
+
     def itinerary_agent(state: TravelState) -> dict[str, Any]:
         messages = _prompt_messages(state)
         model_name = getattr(llm, "model_name", None) or getattr(llm, "model", None)
         token_count = _count_message_tokens(messages, model_name)
         compacted = False
+        history_limit = None
         if token_count > ITINERARY_INPUT_TOKEN_BUDGET:
-            compacted_messages = _prompt_messages(
-                state,
-                compact_research=True,
-            )
-            compacted_count = _count_message_tokens(compacted_messages, model_name)
-            if compacted_count < token_count:
-                messages = compacted_messages
-                token_count = compacted_count
-                compacted = True
+            # Apply lossless formatting/metadata compaction first, then shed
+            # oldest prior user turns until the prompt fits. The current query
+            # and constraints are always rendered from the original state.
+            candidate = _prompt_messages(state, compact_research=True)
+            candidate_count = _count_message_tokens(candidate, model_name)
+            if candidate_count < token_count:
+                messages, token_count, compacted = candidate, candidate_count, True
+            _, prior_turns, _ = _history_context(state)
+            for keep_turns in range(max(prior_turns - 1, 0), -1, -1):
+                if token_count <= ITINERARY_INPUT_TOKEN_BUDGET:
+                    break
+                candidate = _prompt_messages(
+                    state,
+                    compact_research=True,
+                    history_turn_limit=keep_turns,
+                )
+                candidate_count = _count_message_tokens(candidate, model_name)
+                if candidate_count < token_count:
+                    messages, token_count = candidate, candidate_count
+                    history_limit = keep_turns
+                    compacted = True
         breakdown = _prompt_token_breakdown(
             state,
             messages,
             model_name,
             compact_research=compacted,
+            history_turn_limit=history_limit,
         )
         _log_prompt_budget(
             state,
@@ -424,9 +470,19 @@ def create_itinerary_agent(llm: Any) -> AgentNode:
 
         response = None
         for attempt in range(ITINERARY_MAX_ATTEMPTS):
-            active_messages = messages if attempt == 0 else _prompt_messages(state, concise=True)
+            active_messages = messages if attempt == 0 else _prompt_messages(
+                state,
+                concise=True,
+                compact_research=compacted,
+                history_turn_limit=history_limit,
+            )
             response = invoke_llm(
-                llm.bind(max_completion_tokens=ITINERARY_MAX_COMPLETION_TOKENS),
+                llm.bind(
+                    **generation_kwargs(
+                        model_name,
+                        retry=attempt > 0,
+                    )
+                ),
                 active_messages,
             )
             if not _output_limit_reached(response) and _valid_itinerary(response):

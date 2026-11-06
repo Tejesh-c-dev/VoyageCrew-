@@ -13,7 +13,7 @@ langgraph-checkpoint-postgres==3.1.0
 airportsdata==20260315
 pycountry==26.2.16
 fastapi==0.136.3
-PyJWT[crypto]==2.10.1
+argon2-cffi==25.1.0
 uvicorn==0.48.0
 websockets==17.4
 uv==0.13.6

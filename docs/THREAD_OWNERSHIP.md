@@ -1,20 +1,7 @@
-# Clerk authentication and thread ownership
+﻿# Accounts, sessions, and thread ownership
 
-The API requires a Clerk session bearer token. Configure these environment
-values before starting the application:
+TripMate provides open email/password signup and login. Passwords are stored as Argon2id hashes. The API issues random opaque session tokens in an `HttpOnly`, `SameSite=Lax` cookie; PostgreSQL stores only a SHA-256 digest of each token and its expiry. Sessions expire after 14 days and are revoked on logout. State-changing requests reject cross-site browser submissions.
 
-- `CLERK_ISSUER`: exact HTTPS `iss` value emitted by the Clerk session token.
-- `CLERK_AUDIENCE`: audience configured for that token and required by the API.
-- `CLERK_PUBLISHABLE_KEY`: Clerk frontend publishable key.
-- `CLERK_FRONTEND_API_URL`: HTTPS Clerk Frontend API origin, for example
-  `https://example.clerk.accounts.dev`.
+The account and session tables are created by the additive startup migration in `tripmate/persistence/migrations/0001_thread_ownership.sql`. Each account has an internal UUID, which is also the owner key in `tripmate_threads`. Both planning and approval requests require a valid session and verify ownership before invoking the workflow. Unknown and foreign thread IDs both return 404.
 
-The browser obtains a short-lived session token from ClerkJS and sends it in the
-`Authorization: Bearer` header. The backend verifies its RS256 signature using
-Clerk's JWKS, then maps `(issuer, subject)` to an internal UUID.
-
-Startup applies the additive migration in
-`tripmate/persistence/migrations/0001_thread_ownership.sql`. It creates only
-`tripmate_users` and `tripmate_threads`; LangGraph checkpoint tables are
-unchanged. Threads without an ownership record remain inaccessible through the
-travel API. Unknown and foreign thread IDs both return 404.
+Existing Clerk identities are not imported. Existing ownership rows remain intact, but those old accounts cannot sign in and their threads are not attached to new accounts.

@@ -9,20 +9,12 @@ from main import app
 
 
 class TestFrontendServing(unittest.TestCase):
-    def test_runtime_config_exposes_publishable_key_and_jwt_template(self):
-        response = TestClient(app).get("/api/config")
-
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("clerk_publishable_key", response.json())
-        self.assertTrue(response.json()["clerk_jwt_template"])
-
-    def test_production_bundle_uses_runtime_config_and_template(self):
+    def test_production_bundle_contains_builtin_account_forms(self):
         assets = Path(__file__).resolve().parents[1] / "frontend" / "dist" / "assets"
         bundle = "".join(path.read_text(encoding="utf-8") for path in assets.glob("*.js"))
 
-        self.assertIn("/api/config", bundle)
-        self.assertIn("clerk_jwt_template", bundle)
-        self.assertIn("template", bundle)
+        self.assertIn("/api/auth/", bundle)
+        self.assertIn("Create account", bundle)
         self.assertNotRegex(bundle, r"pk_(?:test|live)_[A-Za-z0-9_-]{20,}")
 
     def test_root_and_spa_route_serve_react_build(self):

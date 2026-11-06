@@ -77,6 +77,11 @@ default is `openai/gpt-oss-120b`; set it explicitly when using another model
 from Groq's current model catalog. Requests use Groq's standard
 `https://api.groq.com` endpoint.
 
+For GPT-OSS itinerary generation, the planner uses low reasoning effort on the
+first attempt and disables reasoning on its bounded compact retry so the model
+has enough completion budget to finish the reviewable draft. Other models keep
+the default provider behavior.
+
 `AVIATIONSTACK_API_KEY` is also accepted as an alias.
 
 ### PostgreSQL and Neon
@@ -194,9 +199,8 @@ is a separate decision and is not part of this structural refactor.
 the process environment, so the process environment takes precedence. The
 application consumes `DATABASE_URL`, `GROQ_API_KEY`, `GROQ_MODEL`,
 `TAVILY_API_KEY`, `AVIATION_STACK_API_KEY` (also accepts
-`AVIATIONSTACK_API_KEY`), `OPENWEATHER_API_KEY`, and the Clerk issuer, audience,
-publishable key, and frontend API URL. Provider credentials are needed for the
-corresponding live integrations; Clerk configuration is required at startup.
+`AVIATIONSTACK_API_KEY`), `OPENWEATHER_API_KEY`, and application credentials.
+Provider credentials are needed for the corresponding live integrations. Built-in account sessions are stored in PostgreSQL.
 
 In the local configuration reviewed for the 2026-11-04 readiness audit, the
 application settings above were present. `TRIPMATE_TEST_DATABASE_URL` was not
@@ -248,13 +252,13 @@ npm install --prefix frontend
 npm run dev --prefix frontend
 ```
 
-The Vite development server proxies `/api` to FastAPI. Create the production bundle with `npm run build --prefix frontend`. Docker builds the bundle in its Node stage and packages it with the API. Clerk's publishable key is returned at runtime by `/api/config`; no Clerk key is embedded in the frontend build.
+The Vite development server proxies `/api` to FastAPI. Create the production bundle with `npm run build --prefix frontend`. Docker builds the bundle in its Node stage and packages it with the API. Signup and login use the built-in email/password account endpoints.
 
 ### Release verification
 
 - `npm run build --prefix frontend` — passed. The largest initial JavaScript chunk is 428.31 kB, below Vite's 500 kB warning threshold. PDF export code is loaded only when requested.
 - `npm test --prefix frontend` — passed (2 tests).
-- `npm run test:playwright` — passed (17 tests) against the production React bundle served through FastAPI. Playwright mocks Clerk and planner API calls; Python tests cover FastAPI route and ownership behavior.
+- `npm run test:playwright` — passed (17 tests) against the production React bundle served through FastAPI. Playwright mocks planner API calls; Python tests cover FastAPI route and ownership behavior.
 - `python tests/run_tests.py` - 250 discovered and passed with no skips. Output includes a Pydantic `IncompleteFieldDefinitionWarning` from a dependency's unresolved `lifespan` annotation; the warning remains visible for investigation.
 - Disposable PostgreSQL migration and ownership checks passed, including cross-user isolation. The production Docker image built and its container passed health/readiness, React asset, and API smoke checks. See the migration report for exact results.
 

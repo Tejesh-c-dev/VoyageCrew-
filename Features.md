@@ -4,7 +4,7 @@ VoyageCrew is an AI travel planner that turns a traveler’s request into a tail
 
 ## Traveler experience
 
-- Sign in through Clerk and plan trips in a responsive React interface.
+- Sign in with an email and password and plan trips in a responsive React interface.
 - Describe the destination, origin, dates or duration, budget, travel style, and preferences. Suggested prompts help users get started.
 - See whether a request passed the input guardrail, which specialists were selected, and the supervisor’s routing summary.
 - Review the draft itinerary before completion. Approve it to generate the final response, or provide feedback to revise it.
@@ -34,6 +34,6 @@ FastAPI serves the production React frontend and provides authenticated travel a
 
 ## Runtime dependencies
 
-The application uses Clerk for authentication, Groq for language-model requests, PostgreSQL for durable workflow state and account-scoped threads, and MCP integrations for provider information. Provider credentials are required for their corresponding live data. The frontend is built with Vite and served by FastAPI in production; Docker packages the frontend build and Python application together.
+The application uses built-in email/password accounts, Groq for language-model requests, PostgreSQL for durable workflow state and account-scoped threads, and MCP integrations for provider information. Provider credentials are required for their corresponding live data. The frontend is built with Vite and served by FastAPI in production; Docker packages the frontend build and Python application together.
 
 For installation, configuration, API details, and verification status, see [README.md](README.md).

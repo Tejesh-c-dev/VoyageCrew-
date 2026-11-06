@@ -1,4 +1,4 @@
-"""Persistent mapping from verified identities to LangGraph threads."""
+"""Persistent mapping from account UUIDs to LangGraph threads."""
 
 from typing import Any
 from uuid import UUID
@@ -6,7 +6,6 @@ from uuid import UUID
 import psycopg
 from psycopg_pool import ConnectionPool
 
-from tripmate.api.auth import VerifiedIdentity
 from tripmate.core.exceptions import ThreadNotFoundError
 from tripmate.core.logging import annotate_database_error
 
@@ -14,28 +13,6 @@ from tripmate.core.logging import annotate_database_error
 class ThreadOwnershipStore:
     def __init__(self, pool: ConnectionPool[Any]) -> None:
         self._pool = pool
-
-    def get_or_create_user(self, identity: VerifiedIdentity) -> UUID:
-        try:
-            with self._pool.connection() as connection:
-                with connection.transaction():
-                    with connection.cursor() as cursor:
-                        cursor.execute(
-                            """INSERT INTO tripmate_users (issuer, subject)
-                               VALUES (%s, %s)
-                               ON CONFLICT (issuer, subject) DO UPDATE
-                               SET subject = EXCLUDED.subject
-                               RETURNING id""",
-                            (identity.issuer, identity.subject),
-                        )
-                        return cursor.fetchone()["id"]
-        except psycopg.Error as exception:
-            annotate_database_error(
-                exception,
-                operation="identity_user_upsert",
-                phase="clerk_identity_lookup",
-            )
-            raise
 
     def create_thread(self, thread_id: str, owner_id: UUID) -> None:
         try:

@@ -1,74 +1,78 @@
-"""Clerk bearer-token verification and stable user identity."""
+"""Database-backed password accounts and opaque browser sessions."""
 
-from dataclasses import dataclass
-from functools import lru_cache
+import hashlib
+import secrets
+from datetime import timedelta
+from typing import Any
+from uuid import UUID
 
-import jwt
-from jwt import PyJWKClient, PyJWKClientConnectionError
+import psycopg
+from argon2 import PasswordHasher, Type
+from argon2.exceptions import VerificationError, VerifyMismatchError
+from psycopg_pool import ConnectionPool
 
-from tripmate.core.config import Settings
-from tripmate.core.exceptions import AuthenticationError, ConfigurationError
+from tripmate.core.exceptions import AuthenticationError, BadRequestError
 
-
-@dataclass(frozen=True)
-class VerifiedIdentity:
-    issuer: str
-    subject: str
-
-
-@lru_cache(maxsize=16)
-def _jwks_client(url: str) -> PyJWKClient:
-    return PyJWKClient(url, cache_jwk_set=True, lifespan=300, timeout=5)
+SESSION_COOKIE = "tripmate_session"
+SESSION_LIFETIME = timedelta(days=14)
+PASSWORD_HASHER = PasswordHasher(time_cost=2, memory_cost=19456, parallelism=1, type=Type.ID)
+DUMMY_PASSWORD_HASH = PASSWORD_HASHER.hash(secrets.token_urlsafe(24))
 
 
-def verify_clerk_token(authorization: str | None, settings: Settings) -> VerifiedIdentity:
-    if not settings.clerk_issuer or not settings.clerk_audience:
-        raise ConfigurationError("Clerk authentication is not configured.")
-    if not authorization or not authorization.startswith("Bearer "):
-        raise AuthenticationError("missing_authorization")
+def _token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
-    token = authorization[7:].strip()
-    if not token:
-        raise AuthenticationError("missing_authorization")
 
-    try:
-        jwks = _jwks_client(
-            f"{settings.clerk_issuer.rstrip('/')}/.well-known/jwks.json"
-        )
-        signing_key = jwks.get_signing_key_from_jwt(token).key
-    except PyJWKClientConnectionError as error:
-        raise AuthenticationError("jwks_retrieval") from error
-    except Exception as error:
-        # Key discovery can fail for transport, JWKS parsing, or unknown-kid
-        # reasons. Keep the details server-side and distinct from JWT checks.
-        raise AuthenticationError("jwks_key_lookup") from error
+class AccountStore:
+    def __init__(self, pool: ConnectionPool[Any]) -> None:
+        self.pool = pool
 
-    try:
-        claims = jwt.decode(
-            token,
-            signing_key,
-            algorithms=["RS256"],
-            audience=settings.clerk_audience,
-            issuer=settings.clerk_issuer.rstrip("/"),
-            options={"require": ["exp", "iss", "sub", "aud"]},
-        )
-    except jwt.ExpiredSignatureError as error:
-        raise AuthenticationError("expired_token") from error
-    except jwt.ImmatureSignatureError as error:
-        raise AuthenticationError("not_yet_valid_token") from error
-    except jwt.InvalidIssuerError as error:
-        raise AuthenticationError("issuer_mismatch") from error
-    except jwt.InvalidAudienceError as error:
-        raise AuthenticationError("audience_mismatch") from error
-    except jwt.InvalidSignatureError as error:
-        raise AuthenticationError("invalid_signature") from error
-    except jwt.InvalidTokenError as error:
-        raise AuthenticationError("invalid_token") from error
-    except Exception as error:
-        raise AuthenticationError("verification_error") from error
+    def signup(self, email: str, password: str) -> tuple[UUID, str]:
+        email = email.strip().lower()
+        if len(email) > 254 or "@" not in email:
+            raise BadRequestError("Enter a valid email address.")
+        if len(password) < 10 or len(password) > 1024:
+            raise BadRequestError("Password must be between 10 and 1024 characters.")
+        hashed = PASSWORD_HASHER.hash(password)
+        with self.pool.connection() as conn, conn.transaction(), conn.cursor() as cur:
+            cur.execute("INSERT INTO tripmate_users DEFAULT VALUES RETURNING id")
+            row = cur.fetchone()
+            user_id = row["id"]
+            cur.execute("INSERT INTO tripmate_accounts (user_id, email, password_hash) VALUES (%s, %s, %s) ON CONFLICT (email) DO NOTHING RETURNING user_id", (user_id, email, hashed))
+            account = cur.fetchone()
+            if account is None:
+                raise BadRequestError("An account with that email already exists.")
+            return user_id, self._new_session(cur, user_id)
 
-    subject = claims.get("sub")
-    issuer = claims.get("iss")
-    if not isinstance(subject, str) or not subject or not isinstance(issuer, str):
-        raise AuthenticationError("invalid_token")
-    return VerifiedIdentity(issuer=issuer, subject=subject)
+    def login(self, email: str, password: str) -> tuple[UUID, str]:
+        with self.pool.connection() as conn, conn.transaction(), conn.cursor() as cur:
+            cur.execute("SELECT user_id AS id, password_hash FROM tripmate_accounts WHERE email = %s", (email.strip().lower(),))
+            row = cur.fetchone()
+            try:
+                PASSWORD_HASHER.verify(row["password_hash"] if row is not None else DUMMY_PASSWORD_HASH, password)
+            except (VerificationError, VerifyMismatchError):
+                raise AuthenticationError("invalid_credentials") from None
+            if row is None:
+                raise AuthenticationError("invalid_credentials")
+            return row["id"], self._new_session(cur, row["id"])
+
+    @staticmethod
+    def _new_session(cur: Any, user_id: UUID) -> str:
+        token = secrets.token_urlsafe(32)
+        cur.execute("INSERT INTO tripmate_sessions (token_hash, user_id, expires_at) VALUES (%s, %s, now() + %s)", (_token_hash(token), user_id, SESSION_LIFETIME))
+        return token
+
+    def user_for_session(self, token: str | None) -> UUID:
+        if not token:
+            raise AuthenticationError("missing_session")
+        with self.pool.connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT user_id FROM tripmate_sessions WHERE token_hash = %s AND expires_at > now()", (_token_hash(token),))
+            row = cur.fetchone()
+        if row is None:
+            raise AuthenticationError("invalid_session")
+        return row["user_id"]
+
+    def revoke(self, token: str | None) -> None:
+        if token:
+            with self.pool.connection() as conn, conn.transaction(), conn.cursor() as cur:
+                cur.execute("DELETE FROM tripmate_sessions WHERE token_hash = %s", (_token_hash(token),))

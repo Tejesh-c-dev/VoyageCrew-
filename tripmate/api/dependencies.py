@@ -2,12 +2,11 @@
 
 from uuid import UUID
 
-from fastapi import Header, Request
+from fastapi import Request
 
-from tripmate.api.auth import verify_clerk_token
+from tripmate.api.auth import AccountStore, SESSION_COOKIE
 from tripmate.core.exceptions import ServiceUnavailableError
 from tripmate.persistence.checkpointer import CheckpointerResources
-from tripmate.persistence.ownership import ThreadOwnershipStore
 from tripmate.services.travel_service import TravelService
 
 
@@ -28,13 +27,8 @@ def get_travel_service(request: Request) -> TravelService:
     return travel_service
 
 
-def get_current_user_id(
-    request: Request,
-    authorization: str | None = Header(default=None),
-) -> UUID:
-    settings = getattr(request.app.state, "settings", None)
+def get_current_user_id(request: Request) -> UUID:
     resources = getattr(request.app.state, "checkpointer_resources", None)
-    if settings is None or resources is None:
+    if resources is None:
         raise ServiceUnavailableError()
-    identity = verify_clerk_token(authorization, settings)
-    return ThreadOwnershipStore(resources.pool).get_or_create_user(identity)
+    return AccountStore(resources.pool).user_for_session(request.cookies.get(SESSION_COOKIE))

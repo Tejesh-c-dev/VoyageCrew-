@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from tripmate.api.routes.health import router as health_router
+from tripmate.api.routes.accounts import router as accounts_router
 from tripmate.api.routes.pages import router as pages_router
 from tripmate.api.routes.travel import router as travel_router
 from tripmate.api.exception_handlers import install_exception_handlers
@@ -18,7 +19,6 @@ from tripmate.core.config import (
     configure_ssl_certificates,
     load_settings,
 )
-from tripmate.core.exceptions import ConfigurationError
 from tripmate.core.logging import (
     configure_logging,
     get_logger,
@@ -49,15 +49,6 @@ async def lifespan(application: FastAPI):
     try:
         settings = load_settings(PROJECT_ROOT)
         application.state.settings = settings
-        if not all((
-            settings.clerk_issuer,
-            settings.clerk_audience,
-            settings.clerk_publishable_key,
-            settings.clerk_frontend_api_url,
-        )):
-            raise ConfigurationError(
-                "Clerk issuer, audience, publishable key, and frontend API URL are required."
-            )
         configure_ssl_certificates()
         resources = create_checkpointer(settings)
         integration = create_mcp_integration(settings)
@@ -95,6 +86,11 @@ app.add_middleware(TravelRequestSizeLimitMiddleware)
 
 @app.middleware("http")
 async def request_observability(request: Request, call_next):
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+        fetch_site = request.headers.get("sec-fetch-site", "").lower()
+        origin = request.headers.get("origin")
+        if fetch_site == "cross-site" or (origin and origin.rstrip("/") != str(request.base_url).rstrip("/")):
+            return JSONResponse(status_code=403, content={"detail": "Cross-site requests are not allowed."})
     correlation_id = valid_correlation_id(
         request.headers.get("X-Request-ID")
     ) or str(uuid.uuid4())
@@ -160,6 +156,7 @@ if frontend_images.is_dir():
         name="frontend-images",
     )
 app.include_router(pages_router)
+app.include_router(accounts_router)
 app.include_router(travel_router)
 app.include_router(health_router)
 
