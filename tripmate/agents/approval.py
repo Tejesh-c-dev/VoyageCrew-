@@ -22,11 +22,26 @@ def human_approval_agent(state: TravelState) -> dict[str, Any]:
             },
         }
     )
-    approved = bool(review.get("approved", False))
-    human_feedback = str(review.get("feedback", "")).strip()
+    if not isinstance(review, dict):
+        review = {}
+    rejected = review.get("rejected") is True
+    approved = review.get("approved") is True and not rejected
+    feedback = review.get("feedback")
+    human_feedback = feedback.strip() if isinstance(feedback, str) else ""
+    if not approved and not rejected and human_feedback:
+        # Keep the trip context and make the revision request part of the next draft.
+        query = str(state.get("user_query", ""))
+        review_note = f"\n\nRevision requested by room owner: {human_feedback}"
+        return {
+            "approved": False,
+            "rejected": False,
+            "human_feedback": human_feedback,
+            "user_query": query + review_note,
+            "messages": [AIMessage(content="Revision requested; preparing a new draft.")],
+        }
     return {
         "approved": approved,
-        "rejected": bool(review.get("rejected", False)),
+        "rejected": rejected,
         "human_feedback": human_feedback,
         "messages": [AIMessage(content="Human approval step completed.")],
     }

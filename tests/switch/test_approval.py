@@ -31,6 +31,15 @@ def test_parses_exact_decisions(body, expected):
     assert parse_approval_decision(body) == expected
 
 
+def test_parses_explicit_checkpoint_token():
+    assert parse_approval_decision("APPROVE itinerary [thread:trip-42]") == {
+        "decision": "approve", "thread_id": "trip-42"
+    }
+    assert parse_approval_decision("REVISE: add Nara [thread:trip-42]") == {
+        "decision": "revise", "instruction": "add Nara", "thread_id": "trip-42"
+    }
+
+
 @pytest.mark.parametrize(
     "body",
     [

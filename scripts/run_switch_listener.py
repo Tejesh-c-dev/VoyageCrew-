@@ -25,12 +25,13 @@ AGENT_NAMES = ("flights", "stays", "weather", "budget", "itinerary")
 logger = logging.getLogger("tripmate.switch.demo")
 
 
-def _switch_config(parser: argparse.ArgumentParser) -> tuple[str, str, dict[str, tuple[str, str]]]:
+def _switch_config(parser: argparse.ArgumentParser) -> tuple[str, str, str, dict[str, tuple[str, str]]]:
     load_dotenv(PROJECT_ROOT / ".env")
     server = os.getenv("SWITCH_API_URL")
     room_id = os.getenv("SWITCH_ROOM_ID")
-    if not server or not room_id:
-        parser.error("SWITCH_API_URL and SWITCH_ROOM_ID are required (set them in .env)")
+    room_owner_id = os.getenv("SWITCH_ROOM_OWNER_ID")
+    if not server or not room_id or not isinstance(room_owner_id, str) or not room_owner_id.strip():
+        parser.error("SWITCH_API_URL, SWITCH_ROOM_ID and SWITCH_ROOM_OWNER_ID are required (set them in .env)")
     agents = {}
     missing = []
     for name in AGENT_NAMES:
@@ -42,10 +43,10 @@ def _switch_config(parser: argparse.ArgumentParser) -> tuple[str, str, dict[str,
             agents[name] = (agent_id, key)
     if missing:
         parser.error("Missing Switch agent settings: " + ", ".join(missing))
-    return server, room_id, agents
+    return server, room_id, room_owner_id, agents
 
 
-async def run_listener(server: str, room_id: str, credentials: dict[str, tuple[str, str]]) -> None:
+async def run_listener(server: str, room_id: str, room_owner_id: str, credentials: dict[str, tuple[str, str]]) -> None:
     settings = load_settings(PROJECT_ROOT)
     configure_ssl_certificates()
     resources = None
@@ -70,7 +71,7 @@ async def run_listener(server: str, room_id: str, credentials: dict[str, tuple[s
         llm = create_llm(settings)
         graph = build_travel_graph(resources.saver, llm, integration,
                                    switch_client=clients["itinerary"], switch_room_id=room_id)
-        listener = VoyageCrewListener(clients, graph, room_id)
+        listener = VoyageCrewListener(clients, graph, room_id, room_owner_id)
         listener_task = asyncio.create_task(listener.start(), name="switch-listener")
         stop_task = asyncio.create_task(stop.wait(), name="switch-stop")
         done, _ = await asyncio.wait((listener_task, stop_task), return_when=asyncio.FIRST_COMPLETED)
@@ -93,9 +94,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    server, room_id, credentials = _switch_config(parser)
+    server, room_id, room_owner_id, credentials = _switch_config(parser)
     try:
-        asyncio.run(run_listener(server, room_id, credentials))
+        asyncio.run(run_listener(server, room_id, room_owner_id, credentials))
     except KeyboardInterrupt:
         pass
     return 0

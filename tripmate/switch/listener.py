@@ -2,13 +2,14 @@
 
 import asyncio
 import re
+from uuid import uuid4
 from typing import Any
 
 from langchain_core.messages import HumanMessage
 from langgraph.types import Command
 
 from tripmate.switch.approval import parse_approval_decision
-from tripmate.switch.protocol import EventType, SwitchEvent
+from tripmate.switch.protocol import EventType, SwitchEvent, SwitchMessageEvent
 
 
 _APPROVAL_WORDS = re.compile(r"\b(?:approve|reject|revise)\b", re.IGNORECASE)
@@ -16,10 +17,13 @@ _AMBIGUOUS_REPLIES = {"maybe", "yes", "no", "ok", "okay", "sure"}
 
 
 class VoyageCrewListener:
-    def __init__(self, clients: dict[str, Any], graph: Any, room_id: str):
+    def __init__(self, clients: dict[str, Any], graph: Any, room_id: str, room_owner_id: str):
         self.clients = clients
         self.graph = graph
         self.room_id = room_id
+        self.room_owner_id = room_owner_id
+        self._rejected_thread_ids: set[str] = set()
+        self._completed_thread_ids: set[str] = set()
 
     async def start(self) -> None:
         """Listen on every configured client concurrently."""
@@ -31,12 +35,10 @@ class VoyageCrewListener:
             await self.handle_message(agent_name, event)
 
     async def handle_message(self, agent_name: str, event: SwitchEvent) -> None:
-        if event.event_type is EventType.ROOM_JOIN:
+        if not isinstance(event, SwitchMessageEvent) or not event.payload.addressed:
             return
         payload = event.payload
-        if not isinstance(payload, dict):
-            payload = payload.model_dump()
-        sender = payload.get("sender")
+        sender = payload.sender
         own_agent_ids = {
             getattr(client, "agent_id", None) for client in self.clients.values()
         }
@@ -44,11 +46,17 @@ class VoyageCrewListener:
         if sender in own_agent_ids or sender in self.clients:
             return
 
-        body = payload.get("body", "")
+        body = payload.body
         parsed = parse_approval_decision(body)
         decision = parsed.get("decision")
-        thread_id = payload.get("thread_id") or "default"
+        token_thread_id = parsed.get("thread_id")
+        metadata_thread_id = payload.thread_id
+        if token_thread_id and metadata_thread_id and token_thread_id != metadata_thread_id:
+            return
+        thread_id = token_thread_id or metadata_thread_id
         if decision in {"approve", "reject", "revise"}:
+            if sender != self.room_owner_id or not isinstance(thread_id, str) or not thread_id.strip():
+                return
             await self.resume_with_decision(thread_id, parsed)
             return
 
@@ -60,6 +68,10 @@ class VoyageCrewListener:
             or normalized_body in _AMBIGUOUS_REPLIES
         ):
             return
+        if not isinstance(body, str) or not body.strip():
+            return
+        if not isinstance(thread_id, str) or not thread_id.strip() or thread_id in self._rejected_thread_ids:
+            thread_id = uuid4().hex
         await self._start_graph(body, thread_id)
 
     async def _start_graph(self, body: str, thread_id: str) -> Any:
@@ -78,15 +90,22 @@ class VoyageCrewListener:
         kind = decision.get("decision")
         if kind == "hold" or kind not in {"approve", "reject", "revise"}:
             return None
+        if thread_id in self._completed_thread_ids:
+            return None
+        if kind == "reject":
+            self._rejected_thread_ids.add(thread_id)
         resume_value = {
             "approved": kind == "approve",
             "feedback": decision.get("instruction", "") if kind == "revise" else "",
             "rejected": kind == "reject",
         }
-        return await self.graph.ainvoke(
+        result = await self.graph.ainvoke(
             Command(resume=resume_value),
             config={"configurable": {"thread_id": thread_id}},
         )
+        if kind in {"approve", "reject"}:
+            self._completed_thread_ids.add(thread_id)
+        return result
 
     async def post_agent_message(self, agent_name: str, text: str) -> Any:
         client = self.clients[agent_name]

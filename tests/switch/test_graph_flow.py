@@ -54,3 +54,30 @@ async def test_document_failure_sends_markdown_plan(switch_graph):
     await graph.ainvoke({"user_query": "Kyoto trip", "switch_thread_id": "fallback-thread"}, config)
     await graph.ainvoke(Command(resume={"approved": True, "feedback": "", "rejected": False}), config)
     assert ("room-1", "Polished Kyoto plan") in [call.args for call in client.send_message.await_args_list]
+
+
+@pytest.mark.anyio
+async def test_revise_returns_to_review_and_requires_fresh_approval(switch_graph, monkeypatch):
+    graph, client = switch_graph
+    config = {"configurable": {"thread_id": "revision-thread"}}
+    await graph.ainvoke({"user_query": "Kyoto trip", "switch_thread_id": "revision-thread"}, config)
+    revise = await graph.ainvoke(Command(resume={"approved": False, "feedback": "add Nara", "rejected": False}), config)
+    assert "final_response" not in revise
+    assert client.write_room_document.await_count == 0
+    # The revision cycle returns to the approval interrupt. It cannot finalize without a new approval.
+    result = await graph.ainvoke(Command(resume={"approved": True, "feedback": "", "rejected": False}), config)
+    assert result["final_response"] == "Polished Kyoto plan"
+    client.write_room_document.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_reject_is_terminal(switch_graph):
+    graph, client = switch_graph
+    config = {"configurable": {"thread_id": "terminal-thread"}}
+    await graph.ainvoke({"user_query": "Kyoto trip", "switch_thread_id": "terminal-thread"}, config)
+    await graph.ainvoke(Command(resume={"approved": True, "feedback": "", "rejected": True}), config)
+    client.write_room_document.assert_not_awaited()
+    # A later approval cannot restart a completed rejected checkpoint.
+    result = await graph.ainvoke(Command(resume={"approved": True, "feedback": "", "rejected": False}), config)
+    assert "final_response" not in result
+    client.write_room_document.assert_not_awaited()

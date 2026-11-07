@@ -43,7 +43,11 @@ logger = get_logger(__name__)
 
 
 def _route_after_approval(state: TravelState) -> str:
-    return "end" if state.get("rejected", False) else "final_agent"
+    if state.get("rejected", False):
+        return "end"
+    if not state.get("approved", False) and state.get("human_feedback"):
+        return "revise"
+    return "final_agent" if state.get("approved", False) else "end"
 
 
 def _observed_node(agent_name: str, node: Any):
@@ -133,7 +137,8 @@ def build_travel_graph(
             async def post_draft():
                 await switch_client.send_message(
                     switch_room_id,
-                    f"{update['itinerary']}\n\n{update['approval_request']}",
+                    f"{update['itinerary']}\n\n{update['approval_request']}\n"
+                    f"Append [thread:{state.get('switch_thread_id', '')}] to your APPROVE, REVISE, or REJECT reply.",
                 )
             try:
                 asyncio.get_running_loop()
@@ -245,7 +250,7 @@ def build_travel_graph(
     graph.add_conditional_edges(
         "human_approval",
         _route_after_approval,
-        {"end": END, "final_agent": "final_agent"},
+        {"end": END, "revise": "itinerary_agent", "final_agent": "final_agent"},
     )
     graph.add_edge("final_agent", END)
     graph.add_edge("guardrail_blocked", END)
